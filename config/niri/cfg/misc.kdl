@@ -1,0 +1,43 @@
+    prefer-no-csd
+    // Print copia al portapapeles y además guarda el PNG aquí (niri crea la carpeta).
+    screenshot-path "~/Imágenes/Screenshots/Screenshot %Y-%m-%d %H-%M-%S.png"
+
+    environment {
+        // Sube el tope de la caché de shaders de Mesa (por defecto ~1 GB)
+        // para que no se expulsen y recompilen al reabrir apps.
+        MESA_SHADER_CACHE_MAX_SIZE "10G"
+        ELECTRON_OZONE_PLATFORM_HINT "auto"
+        QT_QPA_PLATFORM "wayland"
+        QT_QPA_PLATFORMTHEME "qt6ct"
+        QT_WAYLAND_DISABLE_WINDOWDECORATION "1"
+        XDG_CURRENT_DESKTOP "niri"
+        XDG_SESSION_TYPE "wayland"
+    }
+
+    cursor {
+        xcursor-theme "breeze_cursors"
+        xcursor-size 24
+    }
+
+    debug {
+        // Allows notification actions and window activation from Noctalia.
+        honor-xdg-activation-with-invalid-serial
+    }
+
+    hotkey-overlay {
+       skip-at-startup
+    }
+
+    blur {
+        // Controla la cantidad de pasadas. 2 es un desenfoque suave y ligero.
+        passes 2
+        
+        // Multiplicador del desenfoque. Al bajarlo a 2.0 mantenemos las formas más distinguibles.
+        offset 2.0
+        
+        // Añade un pequeñísimo grano para evitar que los degradados se vean "a rayas" (banding).
+        noise 0.02
+        
+        // Controla la intensidad del color del fondo (1.0 es el color natural).
+        saturation 1.1
+    }

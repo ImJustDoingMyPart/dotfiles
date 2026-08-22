@@ -1,0 +1,110 @@
+# Menú de sistema — el índice de `Mod+,`. Reemplaza al providerlist como puerta de entrada.
+#
+# ─── Por qué existe este archivo y no alcanzaba con el providerlist ───
+#
+# El providerlist se arma solo y siempre está completo, pero es un PROVIDER, no un menú, y
+# walker solo sabe volver a un MENÚ: la acción `menus:parent` (atada a Escape por el default
+# de /etc/xdg/walker/config.toml) exige que el hijo declare `parent = "<nombre de menú>"`.
+# Con `parent = "providerlist"` el atrás cae en una lista vacía — probado el 2026-08-05.
+#
+# O sea: mientras el índice fuera el providerlist, entrar a Animations o a Temas no tenía
+# vuelta; había que cerrar el launcher y volver a abrirlo. Ese era el reclamo.
+#
+# Con este menú y un `parent = "system"` en cada hijo, el hint `back` aparece abajo a la
+# izquierda —al lado de donde walker ya muestra `run` / `activate`— y Escape vuelve acá.
+#
+# ─── El costo, que hay que tener presente ───
+#
+# Esta lista se mantiene A MANO. Si se instala un provider nuevo, NO aparece solo. El
+# providerlist completo y auto-descubierto sigue existiendo: se llega con el prefijo `;`
+# dentro de walker (default de la versión instalada). Cuando aparezca algo que no está acá,
+# ese es el lugar donde buscarlo, y después se agrega la línea.
+#
+# ─── Organizado por categorías (2026-08-06) ───
+#
+# Antes era una lista plana de 16 entradas en orden arbitrario. Ahora son 6 categorías
+# alfabéticas, con las entradas de cada una también alfabéticas. Cada categoría es un menú
+# aparte (`sys-*.toml`) y declara `parent = "system"`, así la flecha izquierda vuelve acá.
+#
+# El costo: un nivel más para llegar a lo de siempre.
+#
+# ─── Corrección: la búsqueda NO era plana sola (2026-08-08) ───
+#
+# Acá decía que el nivel extra "se mitiga porque la búsqueda sigue siendo plana, gracias a
+# los keywords que cada entrada conserva". **Era falso.** Los keywords hacen que una entrada
+# se encuentre dentro del menú donde vive, pero `walker --provider menus:system` solo
+# consulta ESTE archivo: tipear "wifi" devolvía la categoría "Red" y nada más, porque la
+# hoja que conecta al wifi vive en sys-network.toml y ese menú no se estaba consultando.
+# Comprobado con `elephant query "menus:system;wifi;20"` → 1 resultado.
+#
+# Ahora sí es plana, pero por otra razón: `Mod+,` invoca `walker --set system`, un PROVIDER
+# SET definido en ~/.config/walker/config.toml que lista este menú con el input vacío y
+# consulta este menú + las 6 categorías + las hojas chicas al tipear. El detalle de qué
+# entra al set y qué no está en ese archivo.
+#
+# ─── Dos tipos de entrada, y por qué se ven distintas ───
+#
+#   * `submenu = "x"`  -> abre el menú `menus:x` DENTRO de walker. Es el único que conserva
+#                         la navegación, y por eso todos los menús propios van así.
+#   * `actions = {...}` -> relanza walker apuntando a un provider. Los providers no pueden
+#                         ser submenú de nada, así que estos NO tienen atrás. Es el mismo
+#                         comportamiento que tenían antes desde el providerlist.
+#
+# El `sleep 0.2` de esos comandos no es cosmético: la acción por defecto de un menú tiene
+# `after = "Close"`, así que walker se cierra en cuanto se elige la fila. Sin la espera, el
+# `walker --provider ...` nuevo corre ANTES de que el viejo termine de cerrarse y la ventana
+# queda cerrada. Con la espera abre bien (probado en pantalla).
+#
+# Lo que NO está acá a propósito: todo lo que ya tiene prefijo propio dentro de walker
+# (`:` portapapeles, `/` archivos, `=` calculadora, `.` símbolos, `$` ventanas,
+# `%` marcadores, `@` búsqueda web, `>` runner, `!` tareas) y todo lo que tiene tecla propia
+# (Mod+Space apps, Mod+V portapapeles, Mod+X sesión, Mod+N notificaciones). Un índice que
+# repite lo que ya está a una tecla es ruido.
+
+name = "system"
+name_pretty = "System"
+description = "Índice de configuración del escritorio"
+icon = "preferences-desktop"
+fixed_order = true
+
+[[entries]]
+text = "Apariencia"
+subtext = "temas · fondos · animaciones"
+keywords = ["apariencia", "appearance", "tema", "theme", "fondo", "wallpaper", "color", "animacion"]
+icon = "preferences-desktop-theme"
+submenu = "sys-appearance"
+
+[[entries]]
+text = "Multimedia"
+subtext = "audio y reproductor"
+keywords = ["multimedia", "audio", "sonido", "musica", "media", "volumen", "salida", "reproductor"]
+icon = "applications-multimedia"
+submenu = "sys-multimedia"
+
+[[entries]]
+text = "Red"
+subtext = "red y bluetooth"
+keywords = ["red", "network", "wifi", "internet", "bluetooth", "bt", "conectividad"]
+icon = "cs-network"
+submenu = "sys-network"
+
+[[entries]]
+text = "Sistema"
+subtext = "energía · paquetes · toggles"
+keywords = ["sistema", "system", "energia", "power", "paquete", "package", "toggle", "dnd", "caffeine"]
+icon = "preferences-desktop"
+submenu = "sys-system"
+
+[[entries]]
+text = "Utilidades"
+subtext = "agenda · notificaciones · texto"
+keywords = ["utilidades", "utilities", "agenda", "calendario", "notificacion", "snippet", "unicode"]
+icon = "accessories-text-editor"
+submenu = "sys-utilities"
+
+[[entries]]
+text = "Ventanas"
+subtext = "acciones y sesiones de niri"
+keywords = ["ventanas", "windows", "niri", "compositor", "accion", "sesion", "layout"]
+icon = "cs-overview"
+submenu = "sys-windows"

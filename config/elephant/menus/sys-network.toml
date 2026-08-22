@@ -1,0 +1,29 @@
+# Categoría del índice de `Mod+,`. Generada al agrupar la lista plana de 16 entradas
+# (2026-08-06), que en orden arbitrario era difícil de recorrer.
+#
+# `parent = "system"` es lo que hace que la flecha IZQUIERDA vuelva al índice. No se hereda:
+# cada menú tiene que declararlo. Los menús HOJA que se abren desde acá declaran a su vez
+# `parent = "sys-network"`, para que el atrás los devuelva a esta categoría y no al índice.
+#
+# `fixed_order = true` es obligatorio: sin eso elephant reordena por score y el orden
+# alfabético se pierde. Ya pasó con la agenda.
+
+name = "sys-network"
+name_pretty = "Red"
+description = "red y bluetooth"
+icon = "cs-network"
+parent = "system"
+fixed_order = true
+
+[[entries]]
+text = "Bluetooth"
+subtext = "emparejar y conectar dispositivos"
+keywords = ["bluetooth", "bt", "auriculares", "mando"]
+icon = "preferences-system-bluetooth"
+actions = { "abrir" = "sh -c 'sleep 0.2; walker --provider bluetooth'" }
+[[entries]]
+text = "Red"
+subtext = "conectar y desconectar redes"
+keywords = ["red", "network", "wifi", "internet", "nmcli"]
+icon = "cs-network"
+submenu = "network"

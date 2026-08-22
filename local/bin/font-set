@@ -1,0 +1,363 @@
+#!/usr/bin/env bash
+# Switcher de fuentes — la pieza que le faltaba al menú Apariencia (2026-08-08).
+#
+# Uso:
+#   font-set                        muestra la fuente actual de cada ámbito
+#   font-set --actual <ámbito>      imprime solo la familia actual
+#   font-set --listar <ámbito>      familias candidatas: familia <TAB> subtexto para el menú
+#   font-set <ámbito> "<familia>"   la aplica
+#
+# Ámbitos: `sistema` (la fuente proporcional de la interfaz) y `terminal` (la monoespaciada).
+#
+# ─── Qué toca cada ámbito, y por qué esos archivos ───
+#
+# sistema  → gsettings font-name + document-font-name, gtk-3.0/settings.ini,
+#            gtk-4.0/settings.ini y el `general` de qt5ct/qt6ct. O sea: el chrome de TODA
+#            app GTK y Qt (Brave, Nautilus, EasyEffects, qBittorrent, los diálogos de
+#            archivo del portal…). NO toca waybar, walker ni mako: esos tres declaran su
+#            fuente en su propio CSS a propósito, y es monoespaciada con glifos Nerd Font
+#            porque sus íconos SON glifos — cambiárselas desde acá los rompería.
+#
+# terminal → kitty.conf (la terminal desde el 2026-08-07), alacritty.toml (mientras dure la
+#            convivencia), gsettings monospace-font-name y el `fixed` de qt5ct/qt6ct. Los
+#            dos últimos son "la fuente monoespaciada del sistema": es donde vive la fuente
+#            que las apps GTK/Qt usan para código y logs, y no tenía otro dueño.
+#
+# El TAMAÑO no se toca nunca: cada destino conserva el suyo (kitty 12, GTK 11, documentos
+# 12…). Este script cambia la familia y nada más; los tamaños están afinados por destino y
+# unificarlos sería una regresión.
+
+set -euo pipefail
+
+GTK3_INI="$HOME/.config/gtk-3.0/settings.ini"
+GTK4_INI="$HOME/.config/gtk-4.0/settings.ini"
+QT5_CONF="$HOME/.config/qt5ct/qt5ct.conf"
+QT6_CONF="$HOME/.config/qt6ct/qt6ct.conf"
+KITTY_CONF="$HOME/.config/kitty/kitty.conf"
+ALACRITTY_CONF="$HOME/.config/alacritty/alacritty.toml"
+
+GS_IFACE="org.gnome.desktop.interface"
+
+# ───────────────────────── Listado de candidatas ─────────────────────────
+#
+# UNA sola llamada a fc-list para las dos listas: hay 750 familias instaladas y abrir un
+# proceso por familia se nota al abrir el menú.
+#
+# `:lang=es` es el filtro que hace todo el trabajo pesado, y no es decorativo: pedirle a
+# fontconfig las familias que CUBREN el español descarta de un saque las ~250 Noto de
+# escrituras que no se usan acá (Devanagari, Cuneiforme, Tai Tham…), las de símbolos que no
+# tienen letras (FontAwesome, icomoon, octicons, Webdings, PowerlineSymbols) y los alias de
+# peso de las Nerd Fonts ("JetBrainsMono NF Light" y compañía, que son family[1] del mismo
+# archivo, no familias aparte). De 309 familias reales quedan 55.
+#
+# `%{spacing}` separa las dos listas: fontconfig lo deja VACÍO en las proporcionales y lo
+# pone en 100 en las monoespaciadas. Ojo: vacío no es 0 — filtrar por `:spacing=0` devuelve
+# cero resultados, que fue el primer intento y parecía que fc-list estaba roto.
+#
+# Lo que queda por sacar a mano son las CJK (Noto Sans CJK JP, WenQuanYi…): cubren español
+# porque traen el latino completo, pero elegirlas como fuente de interfaz no es lo que nadie
+# quiere. Y del lado proporcional salen además las `Nerd Font Propo` y las `Noto Sans Mono`,
+# que son fuentes de terminal disfrazadas de proporcionales.
+listar() {
+	local ambito=$1
+
+	# Se piden `weight` y `slant` en vez de `style` porque son NÚMEROS y el nombre del estilo
+	# no: fontconfig lo devuelve traducido según el locale, así que acá las fuentes de
+	# Microsoft dicen "Negrita Cursiva" y las libres "Bold Italic". Detectar la negrita por
+	# nombre habría funcionado en inglés y fallado en esta máquina. En la escala de
+	# fontconfig, Regular es 80 y Bold 200; slant 0 es redonda y cualquier valor mayor,
+	# inclinada.
+	fc-list :lang=es --format '%{family[0]}\t%{spacing}\t%{weight}\t%{slant}\n' 2>/dev/null |
+		awk -F'\t' -v ambito="$ambito" '
+		# ─── El descarte de "familia impronunciable" ───
+		#
+		# La fuente de sistema se guarda como una FONT DESCRIPTION de Pango: una sola cadena
+		# "Familia [estilo] [peso] [ancho] tamaño", que es lo que aceptan gtk-font-name y
+		# gsettings. Pango la parsea de DERECHA A IZQUIERDA y se come como atributo toda
+		# palabra final que sea una de sus keywords. Verificado el 2026-08-08 con
+		# Pango.FontDescription.from_string:
+		#
+		#   "Times New Roman 11"     -> familia "Times New"  + estilo Roman     ← no existe
+		#   "Arial Black 11"         -> familia "Arial"      + peso Heavy
+		#   "Fira Sans Condensed 11" -> familia "Fira Sans"  + ancho Condensed
+		#
+		# Los dos últimos siguen dando la cara correcta porque el tronco SÍ está instalado.
+		# El primero no: "Times New" no existe, así que GTK cae al sans genérico y toda la
+		# interfaz queda en Noto Sans. Y falla en SILENCIO — el archivo dice "Times New
+		# Roman 11" y la pantalla muestra otra cosa. Era el único caso de las 27 candidatas
+		# (comprobado renderizando las 27 con pango-view), y ofrecerlo en el menú sería
+		# ofrecer un botón que no hace lo que dice.
+		#
+		# Regla: se descarta la familia cuya última palabra sea keyword de Pango Y cuyo
+		# tronco no exista como familia instalada. Esto NO aplica al ámbito terminal: kitty
+		# recibe la familia en su propio campo (`family="…"`), sin parseo de por medio.
+		function impronunciable(f,   corte, tronco) {
+			corte = match(f, /[[:space:]][^[:space:]]+$/)
+			if (!corte) return 0
+
+			if (substr(f, corte + 1) !~ /^([Nn]ormal|[Rr]oman|[Oo]blique|[Ii]talic|[Tt]hin|[Ll]ight|[Bb]ook|[Rr]egular|[Mm]edium|[Bb]old|[Hh]eavy|[Bb]lack|[Cc]ondensed|[Ee]xpanded|[Ss]mall-[Cc]aps|[Uu]nicase|[Ss]outh|[Nn]orth|[Ee]ast|[Ww]est)$/) return 0
+
+			tronco = substr(f, 1, corte - 1)
+			return !(tronco in instalada)
+		}
+		{
+			fam = $1; sp = $2
+
+			if (fam == "") next
+
+			# El padrón COMPLETO de familias instaladas, sin filtrar por ámbito: lo
+			# necesita el descarte de "familia impronunciable" del END.
+			instalada[fam] = 1
+
+			if (fam ~ /CJK|WenQuanYi/) next
+
+			mono = (sp == "100")
+			if (ambito == "terminal") {
+				if (!mono) next
+			} else {
+				if (mono) next
+				if (fam ~ /Nerd Font|Mono|Math/) next
+			}
+
+			if (!(fam in variantes)) orden[++n] = fam
+			variantes[fam]++
+			if ($3 + 0 >= 200) negrita[fam] = 1
+			if ($4 + 0 > 0) italica[fam] = 1
+		}
+		END {
+			for (i = 1; i <= n; i++) {
+				fam = orden[i]
+
+				if (ambito == "sistema" && impronunciable(fam)) continue
+
+				txt = variantes[fam] " variante" (variantes[fam] == 1 ? "" : "s")
+
+				if (negrita[fam] && italica[fam])   txt = txt " · negrita e itálica"
+				else if (negrita[fam])              txt = txt " · solo negrita"
+				else if (italica[fam])              txt = txt " · solo itálica"
+				else                                txt = txt " · sin negrita ni itálica"
+
+				# La distinción Nerd Font / Nerd Font Mono no es cosmética: la variante
+				# "Mono" mete cada glifo de ícono en UNA celda y la otra los deja ocupar
+				# dos. En la terminal es la diferencia entre que los íconos de eza y las
+				# secciones de starship queden alineados o pisen la columna siguiente.
+				if (fam ~ /Nerd Font Mono$/)   txt = txt " · Nerd Font, íconos de una celda"
+				else if (fam ~ /Nerd Font$/)   txt = txt " · Nerd Font, íconos anchos"
+
+				printf "%s\t%s\n", fam, txt
+			}
+		}
+	' | sort -f
+}
+
+# ───────────────────────── Lectura de la fuente actual ─────────────────────────
+#
+# Se lee de la FUENTE REAL (gsettings, kitty.conf) y no de un archivo propio de estado: un
+# switcher que guarda su propia copia se desincroniza en cuanto alguien edita la config a
+# mano, y acá editar kitty.conf a mano es lo normal.
+
+# "Adwaita Sans 11" -> "Adwaita Sans". Corta el último token si es un número; así también
+# sobrevive a un valor con estilo adentro ("Cantarell Bold 11" -> "Cantarell Bold").
+sin_tamano() { sed -E 's/[[:space:]]+[0-9]+([.,][0-9]+)?$//' <<<"$1"; }
+
+actual_sistema() { sin_tamano "$(gsettings get "$GS_IFACE" font-name | sed "s/^'//; s/'$//")"; }
+
+# kitty admite `font_family <familia>` a secas y la forma con claves
+# `font_family family="<familia>"` — las dos están en "The font specification syntax" de la
+# doc de la 0.48.2 instalada (/usr/share/doc/kitty/html, y `man 5 kitty.conf`). Acá el
+# archivo usa la segunda, que es la que deja el kitten choose-fonts.
+actual_terminal() {
+	local linea
+	linea=$(grep -m1 -E '^[[:space:]]*font_family[[:space:]]' "$KITTY_CONF" 2>/dev/null || true)
+	[[ -z $linea ]] && return 0
+
+	if [[ $linea =~ family=\"([^\"]+)\" ]]; then
+		echo "${BASH_REMATCH[1]}"
+	else
+		sed -E 's/^[[:space:]]*font_family[[:space:]]+//; s/[[:space:]]+$//' <<<"$linea"
+	fi
+}
+
+# ───────────────────────── Escritura ─────────────────────────
+#
+# Todo pasa por awk con `-v`: la familia entra como VARIABLE y se concatena, nunca como
+# parte de un patrón ni como reemplazo de `sub()`. Así no hay que escapar nada — con sed
+# habría que cuidar `/`, `\` y sobre todo `&`, que en el reemplazo significa "lo que
+# matcheó".
+#
+# Ninguno de estos programas CREA la clave si falta: avisa y deja el archivo intacto.
+# Escribir una clave nueva en el lugar equivocado de un .ini (fuera de su sección) es peor
+# que no tocarla, y en esta máquina las cuatro claves ya existen en los cuatro archivos.
+# De ahí el `exit 3` del END: es la señal de "no encontré dónde escribir".
+
+reescribir() { # archivo, programa_awk, [args extra para awk]
+	local file=$1 prog=$2
+	shift 2
+	[[ -f $file ]] || return 0
+
+	local tmp
+	tmp=$(mktemp)
+
+	if awk "$@" "$prog" "$file" >"$tmp"; then
+		# cat y no mv: conserva permisos, dueño y —si lo hubiera— el symlink.
+		cat "$tmp" >"$file"
+	else
+		echo "font-set: aviso — no encontré la clave en $file, lo dejo como estaba" >&2
+	fi
+
+	rm -f "$tmp"
+}
+
+# gtk-font-name=Adwaita Sans 11  ->  cambia la familia, conserva el " 11" final.
+gtk_ini() {
+	reescribir "$1" '
+		/^gtk-font-name=/ && !hecho {
+			tam = ""
+			if (match($0, /[[:space:]][0-9]+([.,][0-9]+)?$/)) tam = substr($0, RSTART, RLENGTH)
+			$0 = "gtk-font-name=" fam tam
+			hecho = 1
+		}
+		{ print }
+		END { if (!hecho) exit 3 }
+	' -v fam="$2"
+}
+
+# qt5ct/qt6ct guardan un QFont serializado: general="Familia,11,-1,5,400,0,…". Solo se
+# reemplaza el primer campo. Que Qt5 y Qt6 serialicen distinta cantidad de campos da igual:
+# el resto de la cadena se copia tal cual.
+qt_conf() { # archivo, clave (general|fixed), familia
+	reescribir "$1" '
+		index($0, clave "=\"") == 1 && !hecho {
+			resto = substr($0, length(clave) + 3)   # lo que sigue a  clave="
+			coma = index(resto, ",")
+			if (coma > 0) {
+				$0 = clave "=\"" fam substr(resto, coma)
+				hecho = 1
+			}
+		}
+		{ print }
+		END { if (!hecho) exit 3 }
+	' -v clave="$2" -v fam="$3"
+}
+
+gs_familia() { # clave de gsettings: cambia la familia y conserva el tamaño
+	local clave=$1 fam=$2 valor tam
+	valor=$(gsettings get "$GS_IFACE" "$clave" | sed "s/^'//; s/'$//")
+	tam=$(grep -oE '[0-9]+([.,][0-9]+)?$' <<<"$valor" || true)
+	gsettings set "$GS_IFACE" "$clave" "$fam${tam:+ $tam}"
+}
+
+aplicar_sistema() {
+	local fam=$1
+
+	gs_familia font-name "$fam"
+	gs_familia document-font-name "$fam"
+	gtk_ini "$GTK3_INI" "$fam"
+	gtk_ini "$GTK4_INI" "$fam"
+	qt_conf "$QT5_CONF" general "$fam"
+	qt_conf "$QT6_CONF" general "$fam"
+
+	# No hay a quién avisarle: GTK toma el cambio de gsettings en caliente y las apps Qt
+	# leen qt6ct.conf al arrancar. Lo que ya esté abierto puede necesitar reabrirse.
+}
+
+aplicar_terminal() {
+	local fam=$1
+
+	# kitty: la línea se reconstruye entera con el mismo formato que ya tiene el archivo.
+	# `bold_font`/`italic_font`/`bold_italic_font` quedan en `auto` y no se tocan: la doc
+	# dice que en `auto` siguen a font_family, incluidas sus features.
+	reescribir "$KITTY_CONF" '
+		/^[[:space:]]*font_family[[:space:]]/ && !hecho {
+			$0 = "font_family      family=\"" fam "\""
+			hecho = 1
+		}
+		{ print }
+		END { if (!hecho) exit 3 }
+	' -v fam="$fam"
+
+	# Alacritty: el man de la versión instalada dice que `bold`/`italic` heredan la familia
+	# de `normal` si no la declaran, pero en este archivo las tres están escritas, así que
+	# se reescriben las tres.
+	reescribir "$ALACRITTY_CONF" '
+		/^\[/ { en_fuente = ($0 ~ /^\[font\./) }
+		en_fuente && /^[[:space:]]*family[[:space:]]*=/ {
+			$0 = "family = \"" fam "\""
+			hecho = 1
+		}
+		{ print }
+		END { if (!hecho) exit 3 }
+	' -v fam="$fam"
+
+	gs_familia monospace-font-name "$fam"
+	qt_conf "$QT5_CONF" fixed "$fam"
+	qt_conf "$QT6_CONF" fixed "$fam"
+
+	# kitty relee su config con SIGUSR1 — es la misma señal que manda `kitten @ load-config`
+	# por dentro, y no exige tener allow_remote_control prendido. Alacritty trae
+	# live_config_reload en `true` por defecto (documentado en `man 5 alacritty`) y se
+	# entera solo.
+	pkill -SIGUSR1 -x kitty 2>/dev/null || true
+}
+
+# ───────────────────────── Interfaz de línea de comandos ─────────────────────────
+
+case "${1:-}" in
+"")
+	printf 'sistema   %s\n' "$(actual_sistema)"
+	printf 'terminal  %s\n' "$(actual_terminal)"
+	exit 0
+	;;
+--actual)
+	case "${2:-}" in
+	sistema) actual_sistema ;;
+	terminal) actual_terminal ;;
+	*)
+		echo "font-set: --actual necesita 'sistema' o 'terminal'" >&2
+		exit 1
+		;;
+	esac
+	exit 0
+	;;
+--listar)
+	case "${2:-}" in
+	sistema | terminal) listar "$2" ;;
+	*)
+		echo "font-set: --listar necesita 'sistema' o 'terminal'" >&2
+		exit 1
+		;;
+	esac
+	exit 0
+	;;
+esac
+
+ambito=$1
+familia=${2:-}
+
+if [[ $ambito != sistema && $ambito != terminal ]]; then
+	echo "font-set: ámbito desconocido '$ambito' (esperaba 'sistema' o 'terminal')" >&2
+	exit 1
+fi
+
+if [[ -z $familia ]]; then
+	echo "font-set: falta la familia. Ej: font-set $ambito \"Inter\"" >&2
+	exit 1
+fi
+
+# Que la familia exista de verdad, y en el ámbito correcto. fontconfig NUNCA falla al pedirle
+# una fuente inexistente: hace fallback en silencio, así que sin esta comprobación escribir
+# mal un nombre "funciona" y renderiza otra cosa — el mismo pozo que ya documenta la nota
+# [[Apariencia]] sobre el selector de fuentes de Noctalia.
+if ! listar "$ambito" | cut -f1 | grep -qxF "$familia"; then
+	echo "font-set: '$familia' no está entre las familias instaladas para '$ambito'." >&2
+	echo "Disponibles:" >&2
+	listar "$ambito" | cut -f1 | sed 's/^/  /' >&2
+	exit 1
+fi
+
+case $ambito in
+sistema) aplicar_sistema "$familia" ;;
+terminal) aplicar_terminal "$familia" ;;
+esac
+
+echo "font-set: fuente de $ambito → $familia"

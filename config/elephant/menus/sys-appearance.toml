@@ -1,0 +1,53 @@
+# Categoría del índice de `Mod+,`. Generada al agrupar la lista plana de 16 entradas
+# (2026-08-06), que en orden arbitrario era difícil de recorrer.
+#
+# `parent = "system"` es lo que hace que la flecha IZQUIERDA vuelva al índice. No se hereda:
+# cada menú tiene que declararlo. Los menús HOJA que se abren desde acá declaran a su vez
+# `parent = "sys-appearance"`, para que el atrás los devuelva a esta categoría y no al índice.
+#
+# `fixed_order = true` es obligatorio: sin eso elephant reordena por score y el orden
+# alfabético se pierde. Ya pasó con la agenda.
+
+name = "sys-appearance"
+name_pretty = "Apariencia"
+description = "temas · fondos · animaciones"
+icon = "preferences-desktop-theme"
+parent = "system"
+fixed_order = true
+
+[[entries]]
+text = "Animaciones"
+subtext = "pack de animaciones de niri"
+keywords = ["animacion", "animation", "niri", "movimiento"]
+icon = "preferences-desktop-screensaver"
+submenu = "animations"
+[[entries]]
+text = "Fondos de pantalla"
+subtext = "selector · carpeta · cada cuánto cambia"
+keywords = ["fondo", "wallpaper", "imagen", "background", "carpeta", "rotacion"]
+icon = "cs-backgrounds"
+submenu = "wallpapers"
+[[entries]]
+text = "Fuentes"
+subtext = "familia de la interfaz y de la terminal"
+keywords = ["fuente", "font", "tipografia", "letra", "typeface"]
+icon = "cs-fonts"
+submenu = "fonts"
+[[entries]]
+text = "Paquete de íconos"
+subtext = "Tela circle · Papirus · breeze · Dracula"
+keywords = ["icono", "icon", "iconos", "papirus", "tela", "paquete"]
+icon = "preferences-desktop-icons"
+submenu = "icon-packs"
+[[entries]]
+text = "Cursor"
+subtext = "tema del puntero"
+keywords = ["cursor", "puntero", "mouse", "raton"]
+icon = "preferences-desktop-cursors"
+submenu = "cursors"
+[[entries]]
+text = "Temas"
+subtext = "paleta del sistema · generada del fondo o curada"
+keywords = ["tema", "theme", "color", "matugen", "apariencia"]
+icon = "preferences-desktop-theme"
+submenu = "themes"

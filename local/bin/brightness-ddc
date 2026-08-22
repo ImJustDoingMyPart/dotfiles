@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Brillo del monitor por DDC/CI, con OSD.
+#
+# Uso:  brightness-ddc raise|lower|<0-100>
+#
+# Por qué existe, en vez de usar `swayosd-client --brightness`: esa opción de swayosd va
+# contra brightnessctl, o sea contra /sys/class/backlight. En esta máquina NO HAY backlight
+# (es un desktop; `brightnessctl --list` solo devuelve LEDs de teclado y joystick). El brillo
+# del LG solo se toca por DDC/CI sobre i2c. Así que acá se separan las dos mitades:
+# ddcutil cambia el valor, y swayosd solo DIBUJA el OSD con --custom-progress.
+#
+# El TV por HDMI no responde DDC/CI ("I2C slave address x37 is unresponsive"), así que esto
+# es siempre sobre el LG de DP-3.
+
+set -euo pipefail
+
+STEP="${BRIGHTNESS_STEP:-5}"
+BUS_CACHE="$HOME/.local/state/ddc-bus"
+VCP_BRIGHTNESS=10   # 0x10, confirmado en `ddcutil capabilities` del LG
+
+# ─── Resolver el bus i2c ───
+# ddcutil es 12x más rápido con --bus que con --display: 0,12s contra 1,58s, porque
+# --display lo obliga a enumerar todos los displays en cada llamada. Para algo atado a una
+# tecla esa diferencia es todo. Por eso se cachea el número de bus.
+#
+# OJO: el bus NO se puede sacar del link ddc de sysfs. /sys/class/drm/card1-DP-3/ddc apunta
+# a i2c-6, pero ddcutil habla por el i2c-11. En amdgpu el DDC de DisplayPort viaja por el
+# canal AUX y el driver expone un bus distinto del físico. La única fuente correcta es el
+# propio ddcutil.
+detect_bus() {
+  ddcutil detect --brief 2>/dev/null |
+    awk '/^Display /{ok=1} ok&&/I2C bus:/{gsub(/.*\/dev\/i2c-/,""); print; exit}'
+}
+
+get_bus() {
+  if [[ -r $BUS_CACHE ]]; then
+    cat "$BUS_CACHE"
+    return 0
+  fi
+  local bus
+  bus=$(detect_bus)
+  [[ -n $bus ]] || return 1
+  mkdir -p "$(dirname "$BUS_CACHE")"
+  printf '%s\n' "$bus" > "$BUS_CACHE"
+  printf '%s\n' "$bus"
+}
+
+BUS=$(get_bus) || { echo "brightness-ddc: no encuentro un monitor con DDC/CI" >&2; exit 1; }
+
+# --brief da "VCP 10 C <actual> <max>"; se piden los dos porque el máximo no es
+# necesariamente 100 en todos los monitores (en el LG sí, pero no se asume).
+read_brightness() {
+  ddcutil getvcp "$VCP_BRIGHTNESS" --bus "$1" --brief 2>/dev/null | awk '/^VCP/{print $4, $5}'
+}
+
+vals=$(read_brightness "$BUS") || true
+
+# El bus cacheado puede haber quedado viejo (reboot, monitor reconectado). Si la lectura
+# falla, se re-detecta UNA vez y se reintenta antes de darse por vencido.
+if [[ -z ${vals:-} ]]; then
+  rm -f "$BUS_CACHE"
+  BUS=$(get_bus) || { echo "brightness-ddc: no encuentro un monitor con DDC/CI" >&2; exit 1; }
+  vals=$(read_brightness "$BUS")
+fi
+
+[[ -n ${vals:-} ]] || { echo "brightness-ddc: el monitor no respondió" >&2; exit 1; }
+
+current=${vals% *}
+max=${vals#* }
+
+case "${1:-}" in
+  raise) new=$(( current + STEP )) ;;
+  lower) new=$(( current - STEP )) ;;
+  ''|*[!0-9]*) echo "uso: brightness-ddc raise|lower|<0-$max>" >&2; exit 1 ;;
+  *)     new=$1 ;;
+esac
+
+# Clamp. El mínimo es 0 y no 1: el LG a 0 sigue mostrando imagen, no se apaga.
+(( new > max )) && new=$max
+(( new < 0 ))   && new=0
+
+# --noverify evita una lectura extra de confirmación después de escribir.
+ddcutil setvcp "$VCP_BRIGHTNESS" "$new" --bus "$BUS" --noverify >/dev/null 2>&1
+
+# El OSD es solo dibujo: swayosd no tiene idea de que esto salió por i2c.
+# --custom-progress toma 0.0-1.0. `-sw` no existe acá; si el server no corre, falla y no importa.
+if command -v swayosd-client >/dev/null; then
+  swayosd-client \
+    --custom-progress "$(awk -v n="$new" -v m="$max" 'BEGIN{printf "%.2f", n/m}')" \
+    --custom-progress-text "${new}%" \
+    --custom-icon display-brightness-symbolic >/dev/null 2>&1 || true
+fi
+
+echo "brightness-ddc: $current -> $new (max $max, bus $BUS)"

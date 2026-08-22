@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Alterna la visibilidad de la bandeja de Ironbar.
+#
+# Ironbar NO tiene el `group` con `drawer` de Waybar, que era lo que plegaba la bandeja
+# detrás de una flechita. Lo que sí tiene son las "ironvars": variables de runtime que se
+# setean por IPC y que cualquier módulo puede consultar en `show_if`.
+#
+# Entonces el desplegable se arma con dos piezas:
+#   1. el módulo `tray`, con  show_if = "#tray_open"
+#   2. este script en el on_click_left de la flechita, que da vuelta esa variable
+#
+# `ironbar var` no trae un subcomando `toggle`, así que se lee y se escribe el opuesto.
+# El default lo fija `ironvar_defaults` en config.json, para que al arrancar la sesión la
+# bandeja esté plegada.
+#
+# La animación de apertura la pone Ironbar solo: `transition_type` del propio módulo
+# (slide_start por defecto) es el equivalente al transition-duration del drawer de Waybar.
+
+set -euo pipefail
+
+VAR=tray_open
+
+# Si ironbar no está corriendo, `var get` falla: se trata como "cerrada" y se intenta
+# abrir igual, que es lo que espera alguien que acaba de hacer clic.
+actual=$(ironbar var get "$VAR" 2>/dev/null || echo false)
+
+case "$actual" in
+  true) nuevo=false ;;
+  *)    nuevo=true  ;;
+esac
+
+ironbar var set "$VAR" "$nuevo" >/dev/null 2>&1 || true

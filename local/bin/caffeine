@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Caffeine: impedir que la pantalla se apague o se bloquee sola.
+#
+# Uso:  caffeine on|off|toggle|status
+#
+# Se implementa parando el servicio de usuario hypridle en vez de matar el proceso a mano.
+# Ventaja concreta: el estado es consultable de forma confiable
+# (`systemctl --user is-active hypridle`) en lugar de adivinarse con pgrep, y volver a
+# encenderlo restaura exactamente los mismos timeouts sin duplicar los argumentos acá.
+#
+# La unidad es la que TRAE EL PAQUETE (/usr/lib/systemd/user/hypridle.service), no una
+# propia: ya viene con Restart=on-failure y atada a graphical-session.target, que es lo
+# mismo que hacía el swayidle.service escrito a mano al que reemplaza.
+
+set -euo pipefail
+
+UNIT="hypridle.service"
+
+is_on() { systemctl --user is-active --quiet "$UNIT"; }
+
+notify() {
+  command -v notify-send >/dev/null && notify-send -a Caffeine -u low "$1" "$2" || true
+}
+
+case "${1:-toggle}" in
+  status)
+    is_on && echo "off" || echo "on"   # hypridle activo = caffeine APAGADO
+    ;;
+  on)
+    systemctl --user stop "$UNIT"
+    notify "Caffeine activado" "La pantalla no se va a apagar ni bloquear sola"
+    ;;
+  off)
+    systemctl --user start "$UNIT"
+    notify "Caffeine desactivado" "Vuelven el apagado de pantalla y el bloqueo automático"
+    ;;
+  toggle)
+    if is_on; then
+      "$0" on
+    else
+      "$0" off
+    fi
+    ;;
+  *)
+    echo "uso: caffeine on|off|toggle|status" >&2
+    exit 1
+    ;;
+esac

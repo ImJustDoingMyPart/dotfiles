@@ -1,0 +1,43 @@
+# Fondos de pantalla: el menú GRANDE, la puerta única a todo lo del wallpaper.
+#
+# Hasta el 2026-08-14 `wallpapers` ERA la lista de colecciones. Ahora es un índice de tres
+# ramas y la lista de colecciones se llama `wallpapers-select`. El motivo del cambio es que
+# aparecieron dos cosas que no son "elegir una imagen" —dónde buscar y cada cuánto cambia—, y
+# colgarlas de la lista de colecciones las escondía adentro de un scroll de 20 filas.
+#
+#   Selector    → wallpapers-select → wallpapers-images   (qué fondo se pone ahora)
+#   Directorio  → wallpapers-root                         (dónde se buscan)
+#   Duración    → wallpapers-timer                        (cada cuánto cambia solo)
+#
+# `fixed_order = true` porque el orden es el del flujo (primero lo que se usa todos los días,
+# después la configuración), no el alfabético. Sin eso elephant reordena por score.
+#
+# Está en TOML y no en Lua a propósito: son tres entradas fijas, no hay nada que calcular.
+
+name = "wallpapers"
+name_pretty = "Fondos de pantalla"
+description = "elegir el fondo · carpeta · rotación automática"
+icon = "cs-backgrounds"
+parent = "sys-appearance"
+fixed_order = true
+
+[[entries]]
+text = "Selector"
+subtext = "elegir el fondo · recalcula los colores"
+keywords = ["fondo", "wallpaper", "imagen", "background", "elegir", "cambiar"]
+icon = "cs-backgrounds"
+submenu = "wallpapers-select"
+
+[[entries]]
+text = "Directorio"
+subtext = "en qué carpeta se buscan los fondos"
+keywords = ["carpeta", "folder", "directorio", "raiz", "root", "donde"]
+icon = "folder-pictures"
+submenu = "wallpapers-root"
+
+[[entries]]
+text = "Duración"
+subtext = "cada cuántas horas cambia solo"
+keywords = ["duracion", "rotacion", "automatico", "horas", "timer", "intervalo"]
+icon = "preferences-system-time"
+submenu = "wallpapers-timer"

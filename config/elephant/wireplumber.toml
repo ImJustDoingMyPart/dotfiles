@@ -1,0 +1,22 @@
+# Salida de audio por defecto — solo se pisan los íconos.
+#
+# Sigue el CRITERIO DE ÍCONOS documentado en bluetooth.toml: todo lo que se lista bajo
+# Mod+Comma usa íconos de `apps/` de Papirus-Dark, que son los rellenos y a color.
+#
+# Los defaults del provider son todos monocromos y se leían como de otro sistema:
+#   icon_output = "audio-volume-high"            -> actions/  (glifo de línea)
+#   icon_input  = "audio-input-microphone-high"  -> panel/    (el micrófono feo)
+#
+# Verificado RENDERIZANDO con GtkIconTheme de GTK4 —el mismo motor que usa walker— y no
+# leyendo nombres de archivo: `system-shutdown`, por ejemplo, existe en actions/ Y en apps/,
+# y solo renderizando se sabe cuál gana.
+#
+# Los estados "muted" reusan el MISMO ícono a color a propósito: en `apps/` no existe
+# ninguna variante silenciada, y meter un monocromo solo para ese caso reintroduce
+# exactamente la inconsistencia que se está sacando. El estado ya se lee en el subtexto,
+# que muestra el volumen.
+
+icon_output = "cs-sound"
+icon_output_muted = "cs-sound"
+icon_input = "audio-recorder"
+icon_input_muted = "audio-recorder"

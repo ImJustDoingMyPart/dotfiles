@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# post_hook de matugen para el template antigravity. No se llama a mano.
+#
+# Antigravity no lee theme.json: lee ~/.gemini/config/config.json, que además tiene
+# ajustes que no son de color. theme.json es solo el archivo intermedio que escribe
+# el tema — así queda inspeccionable, y es lo que theme-set symlinkea.
+#
+# Este script inyecta las dos semillas de color en config.json sin tocar el resto de
+# userSettings. Es la misma operación que hacía el apply.sh del template comunitario
+# de Noctalia, que es de donde salió este template.
+
+set -euo pipefail
+
+theme_file="$HOME/.gemini/config/theme.json"
+config_file="$HOME/.gemini/config/config.json"
+
+# Si todavía no se symlinkeó el tema (primer render, antes del primer theme-set),
+# no hay nada que inyectar y no es un error.
+[[ -r $theme_file ]] || exit 0
+command -v jq >/dev/null || exit 0
+
+if [[ ! -f $config_file ]]; then
+  cp "$theme_file" "$config_file"
+  exit 0
+fi
+
+tmp=$(mktemp "$config_file.tmp.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+
+jq -s '
+    .[0].userSettings.customThemeSeedsDark  = .[1].userSettings.customThemeSeedsDark
+  | .[0].userSettings.customThemeSeedsLight = .[1].userSettings.customThemeSeedsLight
+  | .[0]
+' "$config_file" "$theme_file" > "$tmp"
+
+# `cat >` y no `mv`: si algún día config.json fuera un symlink, mv lo reemplazaría
+# por un archivo normal en vez de escribir a través de él.
+cmp -s "$config_file" "$tmp" || cat "$tmp" > "$config_file"

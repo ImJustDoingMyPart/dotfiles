@@ -1,0 +1,9 @@
+// Generado por el plugin Noctalia "roberto/niri-animations". No editar a mano:
+// se reescribe entero al elegir un preset o cambiar la velocidad.
+// El pack base (fallback) vive en cfg/animation.kdl; este archivo se incluye después.
+
+include "./animations/pixelate.kdl"
+
+animations {
+    slowdown 1.00
+}

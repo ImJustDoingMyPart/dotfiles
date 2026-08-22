@@ -1,0 +1,46 @@
+[general]
+import = ["~/.config/alacritty/themes/theme.toml"]
+
+[env]
+TERM = "xterm-256color"
+
+[window]
+padding = { x = 12, y = 12 }
+decorations = "None"
+opacity = 0.90
+blur = false
+
+[scrolling]
+history = 3000
+
+[font]
+size = 12.0
+
+[font.normal]
+family = "JetBrainsMono Nerd Font"
+style = "Regular"
+
+[font.bold]
+family = "JetBrainsMono Nerd Font"
+style = "Bold"
+
+[font.italic]
+family = "JetBrainsMono Nerd Font"
+style = "Italic"
+
+[cursor]
+style = { shape = "Block", blinking = "On" }
+
+[mouse]
+hide_when_typing = true
+
+[keyboard]
+bindings = [
+  { key = "N",     mods = "Control|Shift", action = "SpawnNewInstance" },
+  { key = "Plus",  mods = "Control",       action = "IncreaseFontSize" },
+  { key = "Minus", mods = "Control",       action = "DecreaseFontSize" },
+  { key = "Key0",  mods = "Control",       action = "ResetFontSize" },
+]
+
+[terminal.shell]
+program = "/usr/bin/fish"

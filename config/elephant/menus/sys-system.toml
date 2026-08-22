@@ -1,0 +1,35 @@
+# Categoría del índice de `Mod+,`. Generada al agrupar la lista plana de 16 entradas
+# (2026-08-06), que en orden arbitrario era difícil de recorrer.
+#
+# `parent = "system"` es lo que hace que la flecha IZQUIERDA vuelva al índice. No se hereda:
+# cada menú tiene que declararlo. Los menús HOJA que se abren desde acá declaran a su vez
+# `parent = "sys-system"`, para que el atrás los devuelva a esta categoría y no al índice.
+#
+# `fixed_order = true` es obligatorio: sin eso elephant reordena por score y el orden
+# alfabético se pierde. Ya pasó con la agenda.
+
+name = "sys-system"
+name_pretty = "Sistema"
+description = "energía · paquetes · toggles"
+icon = "preferences-desktop"
+parent = "system"
+fixed_order = true
+
+[[entries]]
+text = "Energía"
+subtext = "perfil de energía del sistema"
+keywords = ["energia", "power", "profile", "bateria", "rendimiento"]
+icon = "cs-power"
+submenu = "energy"
+[[entries]]
+text = "Paquetes de Arch"
+subtext = "buscar, instalar y quitar paquetes"
+keywords = ["paquete", "package", "pacman", "aur", "arch", "instalar"]
+icon = "distributor-logo-archlinux"
+actions = { "abrir" = "sh -c 'sleep 0.2; walker --provider archlinuxpkgs'" }
+[[entries]]
+text = "Toggles"
+subtext = "no molestar · luz nocturna · caffeine"
+keywords = ["toggle", "dnd", "nocturna", "caffeine", "interruptor"]
+icon = "preferences-desktop"
+submenu = "toggles"

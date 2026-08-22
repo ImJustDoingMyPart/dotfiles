@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Avisarle del tema nuevo a todo lo que ya está corriendo.
+#
+# Se llama desde los DOS caminos por los que cambia el color del escritorio, que es
+# justamente el motivo por el que este archivo existe:
+#
+#   theme-set <tema>     cambia de tema        -> lo llama al final, tras reapuntar symlinks
+#   theme-matugen [img]  cambia de wallpaper   -> lo llama al final (wallpaper-set entra por acá)
+#
+# Antes el bloque vivía SOLO dentro de theme-set. Como `wallpaper-set` llama a
+# theme-matugen directo, sin pasar por theme-set, al cambiar de wallpaper se regeneraban
+# los archivos del tema y NADIE se enteraba: mako, kitty, niri, walker y la barra seguían
+# con el color viejo hasta el siguiente `theme-set` o reinicio de sesión.
+#
+# Eso no se notaba con Waybar porque tenía `reload_style_on_change`, que vigilaba también
+# los archivos importados y recargaba sola. Ironbar no lo hace, y al migrar quedó a la
+# vista un problema que en realidad afectaba a media docena de programas desde antes.
+# (Verificado el 2026-08-14: con mako, tocando su archivo de tema a mano, la notificación
+# conservaba el color viejo hasta correr `makoctl reload`.)
+#
+# Todo lo de acá abajo es IDEMPOTENTE y no falla si el programa no está levantado.
+
+set -uo pipefail
+
+THEMES_DIR="$HOME/.config/themes"
+
+# ─── Starship ───
+#
+# Es el único que no se resuelve con un symlink: su config tiene el prompt de Roberto y
+# starship no soporta includes, así que la paleta se INYECTA entre marcadores.
+#
+# Vive acá y no en theme-set porque si no, se rompe al cambiar de wallpaper: theme-set lo
+# hacía dentro de su propia sección de symlinks, un lugar por el que theme-matugen no
+# pasa. Resultado, verificado el 2026-08-15: el prompt se quedaba con la paleta del
+# ultimo `theme-set`, y como el directorio usa `style = "cyan bold"`, el nombre de la
+# carpeta seguia pintado con el color de un wallpaper viejo.
+#
+# El tema activo se lee del archivo de estado en vez de recibirlo por parametro, para que
+# este script siga siendo llamable sin argumentos desde los dos lados.
+activo=$(cat "$THEMES_DIR/.activo" 2>/dev/null || echo "")
+if [[ -n $activo && -f "$THEMES_DIR/$activo/starship.toml" ]]; then
+  cp -f "$THEMES_DIR/$activo/starship.toml" "$THEMES_DIR/.starship-palette.toml"
+  starship-palette-apply >/dev/null 2>&1 || true
+fi
+
+# Ironbar hot-loadea su style.css, PERO NO el archivo que ese style.css importa. Probado:
+# al reapuntar el symlink de theme.css la barra seguía con el color viejo, y
+# `ironbar reload` (que recarga la config) tampoco lo toma. Lo único que lo aplica es
+# reiniciar el proceso, igual que con walker.
+#
+# `try-restart` reinicia solo si está corriendo; si no, no hace nada y no falla.
+systemctl --user try-restart ironbar.service >/dev/null 2>&1 || true
+
+# mako no relee el include del tema solo: hay que pedirle la recarga.
+makoctl reload >/dev/null 2>&1 || true
+
+# kitty relee su config (y con ella el include del tema) al recibir SIGUSR1: es lo mismo
+# que hace `kitten @ load-config` internamente (reload_conf_in_all_kitties() en
+# /usr/lib/kitty/kitty/utils.py manda exactamente esta señal a cada proceso GUI de kitty).
+# Ventaja sobre el control remoto: no exige allow_remote_control en la config.
+pkill -SIGUSR1 -x kitty 2>/dev/null || true
+
+# niri sí necesita que le pidan recargar; el include cambió de destino pero el archivo
+# config.kdl no se tocó, así que su watcher no se entera solo.
+niri msg action load-config-file >/dev/null 2>&1 || true
+
+# Walker corre como servicio residente (--gapplication-service) para que abrir el launcher
+# sea instantáneo. El costo de eso es que ya NO relee el CSS en cada apertura: lo cargó una
+# sola vez al arrancar. Por eso hay que reiniciarlo.
+systemctl --user try-restart walker.service >/dev/null 2>&1 || true
+
+# swayosd, igual que walker: lee ~/.config/swayosd/style.css UNA sola vez, al arrancar.
+# No lo vigila (el proceso no tiene ni un fd de inotify abierto) y `swayosd-server --help`
+# no ofrece ninguna opción de reload; solo `-s` para apuntar a otro archivo. Sin esto, el
+# OSD de volumen y brillo se queda con la paleta del último login.
+# (Verificado el 2026-08-16: con el CSS ya regenerado en #1d2024/#9ecafc, el OSD en
+# pantalla seguía dibujándose en #261D1E con la barra en #FFB2BB, de un wallpaper viejo.)
+systemctl --user try-restart swayosd.service >/dev/null 2>&1 || true
+
+# bat lee un cache binario, no el .tmTheme, así que hay que recompilarlo. Antigravity lee
+# config.json, no theme.json, así que hay que reinyectarle las semillas.
+#
+# Los dos son TAMBIÉN post_hook de matugen, y eso no los hace redundantes acá: el post_hook
+# corre sobre ~/.config/themes/matugen/, y estos programas leen el symlink. La primera vez
+# que se activa un tema el symlink todavía no existía cuando corrió el post_hook.
+theme-bat-cache >/dev/null 2>&1 || true
+theme-antigravity-apply >/dev/null 2>&1 || true
+theme-obsidian-apply >/dev/null 2>&1 || true
+
+# Los que NO se pueden recargar en caliente y necesitan reabrir el programa: las apps Qt
+# (qt5ct/qt6ct leen el esquema al arrancar) y yazi. Obsidian y Vesktop sí vigilan sus
+# archivos y toman el color solo.
+#
+# hyprlock no necesita nada: lee la config al arrancar y solo corre mientras la pantalla
+# está bloqueada, así que el bloqueo siguiente ya sale con el tema nuevo.

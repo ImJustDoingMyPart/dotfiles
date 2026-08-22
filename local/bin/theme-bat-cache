@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# post_hook de matugen para el template tmtheme. No se llama a mano.
+#
+# bat NO lee el .tmTheme en cada arranque: lo compila a un cache binario en
+# ~/.cache/bat/themes.bin y lee ese. Sin este rebuild el tema nuevo se escribe
+# igual, pero bat sigue pintando con los colores viejos para siempre — falla en
+# silencio y parece que el template no se hubiera generado.
+#
+# Cuesta ~0,35 s y corre en cada cambio de wallpaper, así que va callado.
+#
+# yazi NO necesita nada equivalente: lee su tmtheme.xml (el mismo archivo, por
+# symlink) directo del disco al arrancar.
+
+set -euo pipefail
+
+command -v bat >/dev/null || exit 0
+
+bat cache --build >/dev/null 2>&1 || true

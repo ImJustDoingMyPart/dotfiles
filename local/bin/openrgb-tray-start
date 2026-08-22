@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Arranca OpenRGB recién cuando hay una bandeja donde poner su ícono.
+#
+# El problema que resuelve (verificado el 2026-08-04): OpenRGB hoy NO tiene ícono de
+# bandeja. No es culpa de la migración, ya estaba roto con Noctalia. Es una carrera de
+# arranque:
+#
+#   org.kde.StatusNotifierWatcher es un nombre D-Bus de DUEÑO ÚNICO. Cuando OpenRGB creó
+#   su QSystemTrayIcon (conexión :1.16) todavía no lo había reclamado nadie — Noctalia lo
+#   tomó después, en :1.37. Qt5 no encontró bandeja y directamente no creó el ícono, y no
+#   vuelve a intentarlo cuando el watcher aparece más tarde.
+#
+# Por eso acá se espera al watcher antes de lanzar OpenRGB, en vez de confiar en el orden
+# de las líneas de autostart.kdl: niri las dispara en orden pero los procesos corren en
+# paralelo, así que el orden del archivo no garantiza nada.
+#
+# El timeout NO es un fallback cosmético: si por lo que sea no aparece ningún watcher,
+# igual conviene levantar OpenRGB. El perfil RGB importa más que el ícono, y en modo Direct
+# el proceso tiene que quedar vivo o los colores se van.
+
+set -euo pipefail
+
+PROFILE="${1:-synthwave}"
+TIMEOUT_MS="${OPENRGB_TRAY_TIMEOUT_MS:-5000}"
+
+has_watcher() {
+  busctl --user call org.freedesktop.DBus /org/freedesktop/DBus \
+    org.freedesktop.DBus NameHasOwner s org.kde.StatusNotifierWatcher 2>/dev/null |
+    grep -q 'b true'
+}
+
+waited=0
+while ! has_watcher && (( waited < TIMEOUT_MS )); do
+  sleep 0.1
+  waited=$(( waited + 100 ))
+done
+
+if ! has_watcher; then
+  echo "openrgb-tray-start: no apareció ninguna bandeja en ${TIMEOUT_MS}ms; arranco igual (sin ícono)" >&2
+fi
+
+exec openrgb --startminimized --profile "$PROFILE"

@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Cambia el wallpaper por otro al azar, si ya pasó el intervalo configurado.
+#
+# Lo ejecuta wallpaper-rotate.timer una vez por hora. El tic es fijo y la decisión es de acá:
+# ver el porqué en `wallpaper-rotate-set`.
+#
+# Uso:  wallpaper-rotate            respeta el intervalo (lo que hace el timer)
+#       wallpaper-rotate --force    cambia ahora, sin mirar el reloj
+
+set -euo pipefail
+
+INTERVAL_FILE="$HOME/.local/state/wallpaper-rotate"
+CURRENT_FILE="$HOME/.local/state/wallpaper"
+
+force=false
+[[ ${1:-} == "--force" ]] && force=true
+
+horas=$(wallpaper-rotate-set --actual)
+
+if [[ $horas == "off" ]]; then
+  exit 0
+fi
+
+# El reloj se cuenta desde el ÚLTIMO CAMBIO DE FONDO, no desde la última corrida del timer:
+# la referencia es el mtime de ~/.local/state/wallpaper, que escribe `wallpaper-set`. O sea
+# que elegir un fondo a mano también reinicia la cuenta, que es lo que uno espera de "cambia
+# cada 6 horas".
+if [[ $force == false ]]; then
+  if [[ -r $CURRENT_FILE ]]; then
+    ultimo=$(stat -c %Y "$CURRENT_FILE")
+    if (($(date +%s) - ultimo < horas * 3600)); then
+      exit 0
+    fi
+  fi
+fi
+
+root=$(wallpaper-root-set --actual)
+actual=""
+[[ -r $CURRENT_FILE ]] && actual=$(<"$CURRENT_FILE")
+
+# Las mismas reglas que el menú Selector: ocultas afuera (los repos de fondos son clones de
+# git), y las dos carpetas que tienen imágenes pero no son fondos. Si esa lista cambia acá,
+# cambia también en wallpapers-select.lua.
+mapfile -t candidatos < <(
+  find "$root" -type f \
+    \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' -o -iname '*.gif' \) \
+    -not -path '*/.*/*' \
+    -not -path '*/Screenshots/*' \
+    -not -path '*/Fastfetch/*' \
+    2>/dev/null
+)
+
+if ((${#candidatos[@]} == 0)); then
+  echo "wallpaper-rotate: no hay fondos en $root" >&2
+  exit 1
+fi
+
+# Con un solo candidato no hay nada que rotar: volver a ponerlo sería regenerar el tema y las
+# copias del lock y del backdrop para nada.
+if ((${#candidatos[@]} == 1)); then
+  [[ ${candidatos[0]} == "$actual" ]] && exit 0
+fi
+
+elegido=""
+for _ in $(seq 10); do
+  elegido=$(printf '%s\n' "${candidatos[@]}" | shuf -n 1)
+  [[ $elegido != "$actual" ]] && break
+done
+
+exec wallpaper-set "$elegido"

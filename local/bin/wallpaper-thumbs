@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Miniaturas de los wallpapers, para que los menús de walker no decodifiquen la imagen
+# entera en cada fila.
+#
+# Uso:  wallpaper-thumbs [carpeta]      genera las que falten (default: la raíz vigente)
+#       wallpaper-thumbs --path <img>   imprime dónde va la miniatura de esa imagen
+#       wallpaper-thumbs --one <img>    genera (o refresca) la de UNA imagen
+#       wallpaper-thumbs --purge        borra el cache entero
+#
+# ─── EL PROBLEMA ───
+#
+# El menú del Selector pone la propia imagen como ícono de la fila y como preview, y walker
+# la carga con `gtk_image_set_from_file` (visto en los símbolos del binario), o sea decodifica
+# el archivo COMPLETO. Los fondos de esta máquina son de 6000x4000: 24 megapíxeles, ~96 MB de
+# textura RGBA, para dibujar un ícono de 32 px y un preview de 500x300.
+#
+# Medido con gdk-pixbuf (el mismo decodificador que usa GTK) sobre ~/Imágenes/gruvbox:
+# 79 ms por imagen, 1,65 s para las 21 de la colección, en el hilo de la interfaz. Eso es el
+# tirón que se siente al abrir el menú y al scrollear.
+#
+# No es elephant: la consulta que arma la lista de 603 imágenes tarda 8 ms.
+#
+# Por qué yazi no sufre lo mismo: yazi decodifica UNA imagen —la del cursor, on-demand— y la
+# rasteriza al tamaño de la celda del terminal. Walker decodifica todas las filas visibles a
+# resolución completa, y de una.
+#
+# ─── LA SOLUCIÓN ───
+#
+# Una copia de cada fondo a 720 px de lado mayor, en JPEG, que es de lo que se alimentan los
+# menús. 720 cubre los dos usos con margen: el ícono son 32 px y el preview 500x300 en una
+# pantalla de escala 1 (`niri msg outputs`).
+#
+# La ruta de la miniatura se DERIVA de la del original (se cuelga la ruta absoluta debajo del
+# cache y se le agrega .jpg), así el menú la calcula solo con concatenar strings y no necesita
+# ni un hash ni un índice. Es a propósito que la regla sea trivial: la implementan también los
+# .lua de los menús, y las dos mitades tienen que coincidir sin ponerse de acuerdo.
+#
+# No se usa el cache de thumbnails freedesktop (~/.cache/thumbnails, el que llena Nautilus):
+# sus miniaturas son de 256 px —se ven blandas en un preview de 500— y la ruta se calcula con
+# el MD5 del URI, que el Lua de elephant no sabe hacer.
+
+set -euo pipefail
+
+CACHE_DIR="${WALLPAPER_THUMBS_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/wallpaper-thumbs}"
+SIZE="${WALLPAPER_THUMB_SIZE:-720}"
+
+SELF=$(realpath "$0")
+
+thumb_path() {
+	# La barra inicial se come al concatenar: /home/anon/x.jpg → $CACHE_DIR/home/anon/x.jpg.jpg
+	# Se conserva la extensión original ANTES del .jpg a propósito: foo.jpg y foo.png en la
+	# misma carpeta son dos fondos distintos y tienen que ser dos miniaturas distintas.
+	printf '%s/%s.jpg\n' "$CACHE_DIR" "${1#/}"
+}
+
+gen_one() {
+	local src=$1 dst
+	dst=$(thumb_path "$src")
+
+	# -nt es "más nuevo que": si el original cambió (se reemplazó el archivo), la miniatura
+	# se regenera sola.
+	[[ -f $dst && $dst -nt $src ]] && return 0
+
+	mkdir -p "${dst%/*}"
+
+	# `-define jpeg:size` NO es cosmético: le dice a libjpeg que decodifique directamente en
+	# escala reducida (la DCT da 1/2, 1/4, 1/8 gratis), así un 6000x4000 no se expande nunca
+	# en memoria. Va ANTES del archivo de entrada porque es una opción de lectura. Se pide el
+	# doble del tamaño final para que el escalado fino tenga de dónde promediar.
+	#
+	# `[0]` es el primer cuadro: sin eso un .gif animado genera una miniatura por cuadro.
+	# `>` en el geometry es "solo achicar": un fondo de 1280x720 se deja como está.
+	if magick -define "jpeg:size=$((SIZE * 2))x$((SIZE * 2))" "${src}[0]" \
+		-auto-orient -thumbnail "${SIZE}x${SIZE}>" \
+		-strip -quality 82 "JPEG:${dst}.tmp" 2>/dev/null; then
+		mv -f "${dst}.tmp" "$dst"
+	else
+		# Un archivo roto o un formato que magick no abre no deja basura ni corta el barrido:
+		# el menú simplemente sigue usando el original para esa fila.
+		rm -f "${dst}.tmp"
+	fi
+}
+
+case "${1:-}" in
+--path)
+	[[ -n ${2:-} ]] || {
+		echo "wallpaper-thumbs: --path necesita una imagen" >&2
+		exit 1
+	}
+	thumb_path "$(realpath "$2")"
+	exit 0
+	;;
+--one)
+	[[ -r ${2:-} ]] || exit 0
+	gen_one "$(realpath "$2")"
+	exit 0
+	;;
+--purge)
+	rm -rf "${CACHE_DIR:?}"
+	echo "wallpaper-thumbs: cache borrado ($CACHE_DIR)"
+	exit 0
+	;;
+esac
+
+dir="${1:-$(wallpaper-root-set --actual)}"
+
+if [[ ! -d $dir ]]; then
+	echo "wallpaper-thumbs: '$dir' no es una carpeta" >&2
+	exit 1
+fi
+
+dir=$(realpath "$dir")
+
+mkdir -p "$CACHE_DIR"
+
+# ─── Un solo barrido a la vez ───
+#
+# Los menús llaman a esto en segundo plano cada vez que detectan una miniatura que falta, y
+# eso puede ser en cada tecla que se tipea (`Cache = false`). Con el candado, la segunda
+# invocación sale en el acto en vez de poner 8 magick más a competir por la CPU.
+exec 9>"$CACHE_DIR/.lock"
+flock -n 9 || exit 0
+
+# Las mismas exclusiones que los menús: ocultas (walls es un clon de git y tiene .git lleno
+# de png), capturas y logos de fastfetch.
+find "$dir" -type f \
+	\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' -o -iname '*.gif' \) \
+	-not -path '*/.*/*' \
+	-not -path '*/Screenshots/*' \
+	-not -path '*/Fastfetch/*' \
+	-print0 |
+	xargs -0 -r -P "$(nproc)" -n1 "$SELF" --one

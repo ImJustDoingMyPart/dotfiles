@@ -1,0 +1,14 @@
+// TV: apagada por defecto (rara vez se usa).
+// Para encenderla puntualmente (peli/jueguito):  niri msg output HDMI-A-1 on
+// Para volver a apagarla:                          niri msg output HDMI-A-1 off
+output "HDMI-A-1" {
+    off
+    mode "1920x1080@60.000"
+    position x=0 y=-1080
+}
+
+output "DP-3" {
+    mode "1920x1080@179.961"
+    position x=0 y=0
+    variable-refresh-rate on-demand=true
+}

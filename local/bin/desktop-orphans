@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# Busca entradas .desktop huérfanas: las que siguen listadas en el launcher aunque el
+# binario que lanzan ya no exista.
+#
+# Uso:  desktop-orphans            # informe legible
+#       desktop-orphans --purge    # además BORRA las huérfanas de ~/.local/share/applications
+#       desktop-orphans --quiet    # sin salida si no hay nada; notifica si hay (para el timer)
+#
+# POR QUÉ EXISTE (caso vsIronbar Studio, 2026-08-17): la app venía de un PKGBUILD que
+# instalaba su .desktop en /usr/share/applications, PERO además el propio programa se
+# copiaba otro a ~/.local/share/applications al arrancar (línea 84 de su script). `pacman -R`
+# se llevó el del sistema y el binario; la copia del home quedó, y walker la siguió
+# ofreciendo durante días. Cualquier app que se auto-instale su entrada repite el patrón:
+# el gestor de paquetes no puede limpiar lo que no instaló.
+#
+# POR QUÉ NO ALCANZA CON TryExec: la spec XDG dice que una entrada cuyo `TryExec=` apunta a
+# un binario ausente puede ignorarse. elephant 2.22.0 NO lo implementa: verificado el
+# 2026-08-17 creando una entrada de prueba con `TryExec=/nonexistent/zzbin` y consultando
+# `elephant query "desktopapplications;zztest;20"` — la devuelve igual. Sí respeta
+# `Hidden=true` y `NoDisplay=true` (esas dos NO aparecieron en la consulta), así que ese es
+# el escape si alguna vez hace falta ocultar una entrada sin borrarla.
+#
+# LÍMITE CONOCIDO: si el Exec arranca con un intérprete o lanzador (`sh -c ...`,
+# `flatpak run ...`, `env FOO=1 cmd`) se chequea ese primer comando. Con `env` se saltean
+# las asignaciones y se mira el comando real; con `sh -c` o `flatpak` el chequeo pasa
+# siempre porque el binario existe. Son falsos negativos aceptables: el script está para
+# cazar el caso común (binario propio desaparecido), no para interpretar líneas de shell.
+
+set -uo pipefail
+
+PURGE=false
+QUIET=false
+for arg in "$@"; do
+  case "$arg" in
+    --purge) PURGE=true ;;
+    --quiet) QUIET=true ;;
+    -h|--help) sed -n '2,8p' "$0" | sed 's/^# \?//'; exit 0 ;;
+    *) echo "opción desconocida: $arg" >&2; exit 2 ;;
+  esac
+done
+
+USER_APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+
+dirs=("$USER_APPS")
+IFS=: read -ra data_dirs <<< "${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+for d in "${data_dirs[@]}"; do dirs+=("$d/applications"); done
+
+# ¿El comando se resuelve a algo ejecutable?
+resolves() {
+  local cmd=$1
+  [[ -z $cmd ]] && return 0
+  if [[ $cmd == /* ]]; then
+    [[ -x $cmd ]]
+  else
+    command -v "$cmd" >/dev/null 2>&1
+  fi
+}
+
+# Primer comando real de una línea Exec=, sin field codes ni prefijo `env VAR=x`.
+exec_cmd() {
+  local -a parts
+  read -ra parts <<< "$1"
+  local cmd=${parts[0]:-}
+  if [[ $cmd == env ]]; then
+    local i=1
+    while [[ ${parts[i]:-} == *=* ]]; do ((i++)); done
+    cmd=${parts[i]:-}
+  fi
+  cmd=${cmd%\"}; cmd=${cmd#\"}
+  cmd=${cmd%\'}; cmd=${cmd#\'}
+  printf '%s' "$cmd"
+}
+
+shopt -s nullglob
+found=0
+purged=0
+report=""
+
+for dir in "${dirs[@]}"; do
+  [[ -d $dir ]] || continue
+  for file in "$dir"/*.desktop; do
+    # Solo el grupo [Desktop Entry]: las [Desktop Action …] tienen sus propios Exec.
+    body=$(awk '/^\[Desktop Entry\]/{f=1;next} /^\[/{f=0} f' "$file")
+
+    grep -qE '^Type[[:space:]]*=[[:space:]]*Application[[:space:]]*$' <<< "$body" || continue
+    # elephant ya las descarta, no son huérfanas visibles.
+    grep -qiE '^(Hidden|NoDisplay)[[:space:]]*=[[:space:]]*true' <<< "$body" && continue
+
+    try_exec=$(grep -m1 -E '^TryExec[[:space:]]*=' <<< "$body" | sed 's/^TryExec[[:space:]]*=[[:space:]]*//')
+    exec_raw=$(grep -m1 -E '^Exec[[:space:]]*='    <<< "$body" | sed 's/^Exec[[:space:]]*=[[:space:]]*//')
+
+    motivo=""
+    if [[ -n $try_exec ]] && ! resolves "$try_exec"; then
+      motivo="TryExec=$try_exec"
+    elif [[ -n $exec_raw ]]; then
+      cmd=$(exec_cmd "$exec_raw")
+      resolves "$cmd" || motivo="Exec=$cmd"
+    fi
+    [[ -z $motivo ]] && continue
+
+    ((found++))
+    nombre=$(grep -m1 -E '^Name[[:space:]]*=' <<< "$body" | sed 's/^Name[[:space:]]*=[[:space:]]*//')
+    duenio=$(pacman -Qoq "$file" 2>/dev/null)
+
+    if [[ -n $duenio ]]; then
+      report+=$(printf '  %s  (%s)\n    %s — falta el binario, pero el archivo lo instaló el paquete %s: no se toca\n' \
+        "${nombre:-$(basename "$file")}" "$file" "$motivo" "$duenio")$'\n'
+      continue
+    fi
+
+    if $PURGE && [[ $file == "$USER_APPS"/* ]]; then
+      rm -f "$file" && ((purged++))
+      report+=$(printf '  %s  (%s)\n    %s — BORRADA\n' "${nombre:-$(basename "$file")}" "$file" "$motivo")$'\n'
+    else
+      report+=$(printf '  %s  (%s)\n    %s — sin paquete dueño%s\n' \
+        "${nombre:-$(basename "$file")}" "$file" "$motivo" \
+        "$([[ $file == "$USER_APPS"/* ]] && echo ', borrable con --purge')")$'\n'
+    fi
+  done
+done
+
+if (( found == 0 )); then
+  $QUIET || echo "Sin entradas huérfanas."
+  exit 0
+fi
+
+if $QUIET; then
+  command -v notify-send >/dev/null && \
+    notify-send -a "Escritorio" -u normal \
+      "$found entrada(s) .desktop huérfana(s)" \
+      "Apps desinstaladas que siguen en el launcher. Corré: desktop-orphans" || true
+  exit 0
+fi
+
+printf '%d entrada(s) huérfana(s):\n\n%s' "$found" "$report"
+$PURGE && printf '\n%d borrada(s). elephant relee el directorio solo; no hace falta reiniciar walker.\n' "$purged"
+exit 0

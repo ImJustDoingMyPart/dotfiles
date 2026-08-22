@@ -1,0 +1,255 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// KEYBINDS — VERSIÓN WALKER (staged, TODAVÍA NO ACTIVA)
+//
+// Este archivo NO lo incluye config.kdl. Es keybinds.kdl con los 19 binds de
+// `noctalia msg` reemplazados; todo lo demás (foco, movimiento, workspaces, layout,
+// screenshots, replay) está idéntico.
+//
+// Para activarlo, cuando se apague Noctalia (paso 7 del plan):
+//     cd ~/.config/niri/cfg
+//     cp keybinds.kdl keybinds-noctalia.bak.kdl
+//     mv keybinds-walker.kdl keybinds.kdl
+//     niri validate && niri msg action load-config-file
+//
+// Para ver exactamente qué cambia:  diff keybinds.kdl keybinds-walker.kdl
+// ═══════════════════════════════════════════════════════════════════════════════
+
+binds {
+
+    // ────────────── Keybindings ──────────────
+
+    // ─── Walker / elephant ───
+    // Reemplazan a los paneles de Noctalia. `walker` a secas abre el launcher de apps;
+    // con --provider entra directo a un provider o a un menú concreto.
+    Mod+Shift+ESCAPE                     { show-hotkey-overlay; }
+    Mod+Space                           hotkey-overlay-title="Launcher" { spawn "walker"; }
+    Mod+V                               hotkey-overlay-title="Clipboard Manager" { spawn "walker" "--provider" "clipboard"; }
+    Mod+M                               hotkey-overlay-title="System Monitor" { spawn "kitty" "--class" "btop" "btop"; }
+    // Índice de configuración del escritorio: temas, fondos, animaciones, toggles, red,
+    // bluetooth, audio, agenda, notificaciones, acciones de niri, paquetes.
+    //
+    // Es un MENÚ propio (menus/system.toml) y no el provider `providerlist`, y eso es a
+    // propósito: walker solo sabe volver a un menú, así que con el providerlist como índice
+    // entrar a Animations o a Temas no tenía vuelta. Con el menú, cada hijo declara
+    // `parent = "system"`, aparece el hint `back` abajo y Escape vuelve al índice.
+    //
+    // El providerlist completo y auto-descubierto NO se perdió: se llega con el prefijo `;`
+    // dentro de walker. Ahí está todo lo que no se listó a mano.
+    //
+    // `--set system` en vez de `--provider menus:system` (2026-08-08): el set abre con el
+    // mismo índice de 6 categorías, pero al TIPEAR busca también dentro de ellas. Con
+    // --provider la búsqueda se quedaba en el nivel abierto y las hojas eran invisibles.
+    // El set está definido en ~/.config/walker/config.toml, con el detalle de qué incluye.
+    Mod+Comma                           hotkey-overlay-title="System Menu" { spawn "walker" "--set" "system"; }
+    Mod+X                               hotkey-overlay-title="Power Menu" { spawn "walker" "--provider" "menus:session"; }
+    Mod+A                               hotkey-overlay-title="Animations (Niri)" { spawn "walker" "--provider" "menus:animations"; }
+    // Mod+Y conserva el significado que tenía con Noctalia: elegir wallpaper. Los temas
+    // son un concepto nuevo (no existían como lista) y por eso se llevan el Shift.
+    //
+    // Va DERECHO al selector (`wallpapers-select`), no al menú grande `wallpapers`: la tecla
+    // es el atajo para cambiar el fondo, y meterle en el medio el índice de tres ramas le
+    // agregaría un Return a lo que se hace todos los días. La carpeta y la duración se
+    // configuran de vez en cuando y se llegan por Mod+, → Apariencia → Fondos de pantalla.
+    Mod+Y                               hotkey-overlay-title="Wallpaper Selector" { spawn "walker" "--provider" "menus:wallpapers-select"; }
+    Mod+Shift+Y                         hotkey-overlay-title="Themes" { spawn "walker" "--provider" "menus:themes"; }
+
+    // Notificaciones: las maneja MAKO. El historial no es un panel propio sino un menú de
+    // walker que lee `makoctl history`, y "no molestar" es un modo de mako. (El comentario
+    // viejo hablaba del `-sw` de swaync-client; swaync ya no corre.)
+    Mod+N                             hotkey-overlay-title="Notification Center" { spawn "walker" "--provider" "menus:notifications"; }
+    Mod+Shift+N                         hotkey-overlay-title="Do Not Disturb" { spawn "makoctl" "mode" "-t" "do-not-disturb"; }
+
+    Mod+ALT+L                           hotkey-overlay-title="Lock Screen" { spawn "lock"; }
+
+    // RESCATE. `allow-when-locked=true` hace que este bind funcione INCLUSO con la sesión
+    // bloqueada, que es justo el caso en el que hace falta.
+    //
+    // Cubre el único escenario feo de ext-session-lock: si el locker se muere DESPUÉS de
+    // tomar la sesión, niri deja la pantalla bloqueada a propósito (para que un crash no
+    // exponga el escritorio) y no queda nadie a quien tipearle la contraseña. Esto levanta
+    // un locker nuevo sin tener que irse a un TTY.
+    //
+    // El `pgrep ||` evita apilar dos lockers si el actual está vivo y solo se apretó por
+    // error: dos clientes peleando por la sesión es otra forma de quedarse afuera.
+    Mod+ALT+Shift+L                     allow-when-locked=true hotkey-overlay-title="Rescate del lock" { spawn-sh "pgrep -x hyprlock >/dev/null || lock"; }
+
+    // El menú `toggles` (DND, luz nocturna, caffeine) NO tiene bind propio a propósito:
+    // por la regla de contención, el menú es para la cola larga y lo diario merece tecla.
+    // Se llega con Mod+Comma -> toggles. Mod+T está ocupado por toggle-window-floating.
+
+    // ─── Applications (Run-or-Cycle) ───
+    // kitty (desde 2026-08-07; antes Alacritty). OJO con el app_id: el de kitty es
+    // "kitty" en minúscula, el de Alacritty era "Alacritty" con mayúscula — es lo que
+    // recibe run-or-cycle.sh como primer argumento y lo que matchean las reglas de
+    // ventana en cfg/rules.kdl.
+    Mod+Return                          hotkey-overlay-title="Kitty (Cycle)" { spawn "/home/anon/.local/bin/run-or-cycle.sh" "kitty" "kitty"; }
+    Mod+Shift+Return                    hotkey-overlay-title="Kitty (New)" { spawn "kitty"; }
+    Mod+B                               hotkey-overlay-title="Brave (Cycle)" { spawn "/home/anon/.local/bin/run-or-cycle.sh" "brave-browser" "brave"; }
+    Mod+Shift+B                         hotkey-overlay-title="Brave (New)" { spawn "brave"; }
+    Mod+E                               hotkey-overlay-title="Yazi (Cycle)" { spawn "/home/anon/.local/bin/run-or-cycle.sh" "yazi" "kitty --class yazi yazi"; }
+    Mod+Shift+E                         hotkey-overlay-title="Nautilus (Cycle)" { spawn "/home/anon/.local/bin/run-or-cycle.sh" "org.gnome.Nautilus" "nautilus"; }
+    Mod+Z                               hotkey-overlay-title="Vesktop (Cycle)" { spawn "/home/anon/.local/bin/run-or-cycle.sh" "vesktop" "vesktop"; }
+    Mod+S                               hotkey-overlay-title="Steam (Cycle)" { spawn "/home/anon/.local/bin/run-or-cycle.sh" "steam" "steam"; }
+
+    // ─── Media Controls ───
+    // Volumen: wpctl (WirePlumber) directo. `-l 1.0` limita el volumen final a 100% —
+    // Todo pasa por swayosd-client y no por wpctl/playerctl directo: swayosd hace LAS DOS
+    // cosas — aplica el cambio y dibuja el OSD. Llamar a wpctl funcionaría igual pero sin
+    // ningún indicador en pantalla, que es la regresión más visible al salir de Noctalia.
+    // --max-volume 100 cumple el mismo rol que el `-l 1.0` de wpctl: no pasar de 100%.
+    XF86AudioRaiseVolume                allow-when-locked=true { spawn "swayosd-client" "--output-volume" "raise" "--max-volume" "100"; }
+    XF86AudioLowerVolume                allow-when-locked=true { spawn "swayosd-client" "--output-volume" "lower"; }
+    XF86AudioMute                       allow-when-locked=true { spawn "swayosd-client" "--output-volume" "mute-toggle"; }
+    XF86AudioMicMute                    allow-when-locked=true { spawn "swayosd-client" "--input-volume" "mute-toggle"; }
+
+    // Media: swayosd corre el comando de playerctl y además muestra qué pasó.
+    XF86AudioNext                       allow-when-locked=true { spawn "swayosd-client" "--playerctl" "next"; }
+    XF86AudioPrev                       allow-when-locked=true { spawn "swayosd-client" "--playerctl" "prev"; }
+    XF86AudioPlay                       allow-when-locked=true { spawn "swayosd-client" "--playerctl" "play-pause"; }
+    XF86AudioPause                      allow-when-locked=true { spawn "swayosd-client" "--playerctl" "play-pause"; }
+
+    Mod+Shift+A                         hotkey-overlay-title="Toggle Audio Output" { spawn "/home/anon/.local/bin/toggle-audio.sh"; }
+    Mod+Shift+T                         hotkey-overlay-title="Toggle TV (HDMI)" { spawn "/home/anon/.local/bin/toggle-tv.sh"; }
+
+    // ─── Brightness Controls ───
+    // Estos dos binds estaban ROTOS desde antes de la migración: apuntaban a
+    // `noctalia msg brightness-*`, pero acá no hay backlight (es un desktop, los dos
+    // monitores son externos) y Noctalia hace DDC/CI shelleando a ddcutil, que no estaba
+    // instalado ni habilitado. O sea: nunca hicieron nada.
+    //
+    // Ahora sí funcionan. NO se usa `swayosd-client --brightness` porque esa opción va
+    // contra brightnessctl, o sea contra /sys/class/backlight, que en esta máquina no
+    // existe. brightness-ddc separa las dos mitades: ddcutil cambia el valor por i2c y
+    // swayosd solo dibuja el OSD. Ver ~/.local/bin/brightness-ddc.
+    XF86MonBrightnessUp                 allow-when-locked=true { spawn "brightness-ddc" "raise"; }
+    XF86MonBrightnessDown               allow-when-locked=true { spawn "brightness-ddc" "lower"; }
+
+    // ─── Window Movement and Focus (Arrows & HJKL) ───
+    Mod+Q                               { close-window; }
+    
+    // FOCUS
+    Mod+Left                            { focus-column-left; }
+    Mod+H                               { focus-column-left; }
+    Mod+Right                           { focus-column-right; }
+    Mod+L                               { focus-column-right; }
+    Mod+Up                              { focus-window-up; }
+    Mod+K                               { focus-window-up; }
+    Mod+Down                            { focus-window-down; }
+    Mod+J                               { focus-window-down; }
+
+    // MOVE COLUMN (Shift)
+    Mod+Shift+Left                      { move-column-left; }
+    Mod+Shift+H                         { move-column-left; }
+    Mod+Shift+Right                     { move-column-right; }
+    Mod+Shift+L                         { move-column-right; }
+    Mod+Shift+Up                        { move-column-to-workspace-up; }
+    Mod+Shift+K                         { move-column-to-workspace-up; }
+    Mod+Shift+Down                      { move-column-to-workspace-down; }
+    Mod+Shift+J                         { move-column-to-workspace-down; }
+
+    // MOVE COLUMN TO MONITOR (Ctrl+Shift)
+    Mod+CTRL+Shift+Left                 { move-column-to-monitor-left; }
+    Mod+CTRL+Shift+H                    { move-column-to-monitor-left; }
+    Mod+CTRL+Shift+Right                { move-column-to-monitor-right; }
+    Mod+CTRL+Shift+L                    { move-column-to-monitor-right; }
+    Mod+CTRL+Shift+Up                   { move-column-to-monitor-up; }
+    Mod+CTRL+Shift+K                    { move-column-to-monitor-up; }
+    Mod+CTRL+Shift+Down                 { move-column-to-monitor-down; }
+    Mod+CTRL+Shift+J                    { move-column-to-monitor-down; }
+
+    // MONITOR FOCUS (Ctrl)
+    Mod+CTRL+Left                       { focus-monitor-left; }
+    Mod+CTRL+H                          { focus-monitor-left; }
+    Mod+CTRL+Right                      { focus-monitor-right; }
+    Mod+CTRL+L                          { focus-monitor-right; }
+    Mod+CTRL+Up                         { focus-monitor-up; }
+    Mod+CTRL+K                          { focus-monitor-up; }
+    Mod+CTRL+Down                       { focus-monitor-down; }
+    Mod+CTRL+J                          { focus-monitor-down; }
+
+    Mod+Home                            { focus-column-first; }
+    Mod+End                             { focus-column-last; }
+    Mod+CTRL+Home                       { move-column-to-first; }
+    Mod+CTRL+End                        { move-column-to-last; }
+
+    // ─── Workspace Switching (U/I) ───
+    Mod+I                               { focus-workspace-up; }
+    Mod+U                               { focus-workspace-down; }
+    Mod+Page_Up                         { focus-workspace-up; }
+    Mod+Page_Down                       { focus-workspace-down; }
+    Mod+WheelScrollUp                   cooldown-ms=150 { focus-workspace-up; }
+    Mod+WheelScrollDown                 cooldown-ms=150 { focus-workspace-down; }
+
+    // ─── Scroll horizontal por columnas (ruedita) ───
+    // Shift+rueda vertical = scroll horizontal, como en las apps.
+    Mod+Shift+WheelScrollUp             { focus-column-left; }
+    Mod+Shift+WheelScrollDown           { focus-column-right; }
+    // Rueda basculante / scroll horizontal nativo del mouse o touchpad.
+    Mod+WheelScrollLeft                 { focus-column-left; }
+    Mod+WheelScrollRight                { focus-column-right; }
+    // Con Ctrl: mover la columna en vez de solo enfocarla.
+    Mod+CTRL+Shift+WheelScrollUp        { move-column-left; }
+    Mod+CTRL+Shift+WheelScrollDown      { move-column-right; }
+
+    // Move whole workspace
+    Mod+CTRL+Shift+I                    { move-workspace-up; }
+    Mod+CTRL+Shift+U                    { move-workspace-down; }
+
+    // Alternative move column to workspace (U/I)
+    Mod+Shift+I                         { move-column-to-workspace-up; }
+    Mod+Shift+U                         { move-column-to-workspace-down; }
+
+    Mod+1                               { focus-workspace 1; }
+    Mod+2                               { focus-workspace 2; }
+    Mod+3                               { focus-workspace 3; }
+    Mod+4                               { focus-workspace 4; }
+    Mod+5                               { focus-workspace 5; }
+    Mod+6                               { focus-workspace 6; }
+    Mod+7                               { focus-workspace 7; }
+    Mod+8                               { focus-workspace 8; }
+    Mod+9                               { focus-workspace 9; }
+
+    Mod+CTRL+1                          { move-column-to-workspace 1; }
+    Mod+CTRL+2                          { move-column-to-workspace 2; }
+    Mod+CTRL+3                          { move-column-to-workspace 3; }
+    Mod+CTRL+4                          { move-column-to-workspace 4; }
+    Mod+CTRL+5                          { move-column-to-workspace 5; }
+    Mod+CTRL+6                          { move-column-to-workspace 6; }
+    Mod+CTRL+7                          { move-column-to-workspace 7; }
+    Mod+CTRL+8                          { move-column-to-workspace 8; }
+    Mod+CTRL+9                          { move-column-to-workspace 9; }
+
+    // ─── Layout and Overview ───
+    Mod+D                               { toggle-overview; }
+    Mod+Tab                             { toggle-overview; }
+    Mod+O                               { toggle-overview; }
+    
+    Mod+F                               { maximize-column; }
+    Mod+Shift+F                         { fullscreen-window; }
+    Mod+T                               { toggle-window-floating; }
+    Mod+W                               { toggle-column-tabbed-display; }
+    Mod+C                               { center-column; }
+    Mod+CTRL+C                          { center-visible-columns; }
+    Mod+CTRL+F                          { expand-column-to-available-width; }
+    Mod+Minus                           { set-column-width "-10%"; }
+    Mod+Equal                           { set-column-width "+10%"; }
+    Mod+Shift+Minus                     { set-window-height "-10%"; }
+    Mod+Shift+Equal                     { set-window-height "+10%"; }
+
+    // ─── Misc ───
+    Print                               { screenshot; }
+    CTRL+Print                          { screenshot-screen; }
+    Alt+Print                           { screenshot-window; }
+    Mod+Shift+P                         { power-off-monitors; }
+    Mod+ESCAPE                          allow-inhibiting=false { toggle-keyboard-shortcuts-inhibit; }
+    CTRL+ALT+Delete                     { quit; }
+
+    // ─── Screen Recording ───
+    // GPU Screen Recorder — todo va contra el daemon gsr-ui (una sola config: ~/.config/gpu-screen-recorder/config_ui)
+    Mod+G                               hotkey-overlay-title="Grabar pantalla: arrancar/parar" { spawn "gsr-ui-cli" "toggle-record"; }
+    Mod+Shift+G                         hotkey-overlay-title="Guardar Replay (la jugada)" { spawn "gsr-ui-cli" "replay-save"; }
+
+    // Búfer de replay on/off a mano (arranca solo al lanzar un juego) y el overlay de GSR
+    Mod+ALT+G                           hotkey-overlay-title="Replay: arrancar/parar búfer" { spawn "gsr-ui-cli" "toggle-replay"; }
+    Mod+ALT+Shift+G                     hotkey-overlay-title="GPU Screen Recorder (overlay)" { spawn "gsr-ui-cli" "toggle-show"; }
+}

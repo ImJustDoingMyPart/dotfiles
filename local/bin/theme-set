@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# Switcher de temas — versión propia del `dfr-theme-set` de dotfriedrice.
+#
+# Uso:
+#   theme-set              lista los temas y marca el activo
+#   theme-set <nombre>     activa ese tema
+#   theme-set --actual     imprime solo el nombre del tema activo
+#
+# Modelo (el de dotfriedrice): un directorio por tema, un archivo por app adentro.
+# Activar = SYMLINKEAR el archivo que cada app espera al del tema activo. Así ninguna
+# app necesita saber que existe un switcher: ironbar importa siempre "./theme.css" y
+# walker siempre "./theme.css"; lo que cambia es a dónde apunta ese symlink.
+#
+#   ~/.config/themes/<tema>/bar.css     <-  ~/.config/ironbar/theme.css
+#   ~/.config/themes/<tema>/walker.css  <-  ~/.config/walker/themes/base/theme.css
+#
+# El tema "matugen" es especial: sus archivos no están versionados, los escribe matugen
+# desde el wallpaper (ver theme-matugen). Es la mitad "color generado" del híbrido —
+# se conserva el color por wallpaper de Noctalia sin resignar la estructura de temas.
+
+set -euo pipefail
+
+THEMES_DIR="$HOME/.config/themes"
+ACTIVE_FILE="$THEMES_DIR/.activo"
+
+# archivo del tema -> dónde se symlinkea. Puede haber MÁS DE UN destino separado por
+# espacios (gtk.css va a GTK3 y GTK4, que son dos árboles de config distintos con el
+# mismo contenido).
+declare -A TARGETS=(
+  [bar.css]="$HOME/.config/ironbar/theme.css"
+  [walker.css]="$HOME/.config/walker/themes/base/theme.css"
+  [niri.kdl]="$HOME/.config/niri/theme-colors.kdl"
+  [kitty.conf]="$HOME/.config/kitty/themes/theme.conf"
+  # Alacritty: se conserva mientras dure la convivencia con kitty (migración 2026-08-07).
+  [alacritty.toml]="$HOME/.config/alacritty/themes/theme.toml"
+  [btop.theme]="$HOME/.config/btop/themes/theme.theme"
+  [gtk.css]="$HOME/.config/gtk-3.0/theme.css $HOME/.config/gtk-4.0/theme.css"
+  [mako]="$HOME/.config/mako/theme"
+  # swayosd busca solo su style.css en ~/.config/swayosd/; no hace falta pasarle -s.
+  [swayosd.css]="$HOME/.config/swayosd/style.css"
+  # hyprlock SÍ soporta `source`, así que el archivo del tema trae solo los colores y la
+  # estructura queda en ~/.config/hypr/hyprlock.conf. (Con swaylock, que no tiene include,
+  # el archivo del tema tenía que ser la config entera y se duplicaba en cada tema.)
+  [hyprlock.conf]="$HOME/.config/hypr/hyprlock-colors.conf"
+
+  # ─── Los seis que volvieron el 2026-08-07 (punto F2 del plan de pulido) ───
+  # Eran templates de Noctalia que al migrar quedaron congelados en su último render.
+  #
+  # Esquema de color de las apps Qt. Dos árboles de config con el mismo contenido,
+  # igual que gtk.css; qt5ct.conf y qt6ct.conf apuntan acá con color_scheme_path.
+  [qt.conf]="$HOME/.config/qt5ct/colors/theme.conf $HOME/.config/qt6ct/colors/theme.conf"
+
+  # tmTheme de syntect, compartido: es el resaltado de sintaxis de bat Y el del
+  # previsualizador de yazi. Los dos leen el mismo formato y Noctalia generaba dos
+  # archivos idénticos, así que acá es uno solo con dos destinos.
+  [tmtheme.xml]="$HOME/.config/bat/themes/theme.tmTheme $HOME/.config/yazi/flavors/theme.yazi/tmtheme.xml"
+
+  # La otra mitad del flavor de yazi: la interfaz.
+  [yazi-flavor.toml]="$HOME/.config/yazi/flavors/theme.yazi/flavor.toml"
+
+  # obsidian.css NO va acá: tampoco se symlinkea, se COPIA a cada vault (ver más abajo).
+  # Obsidian recarga los snippets en caliente vigilando la carpeta del vault, y a través
+  # de un symlink no ve nada cuando matugen reescribe el archivo destino.
+
+  # Vesktop. El nombre importa: es el que figura en enabledThemes de su settings.json.
+  [vesktop.css]="$HOME/.config/vesktop/themes/theme.css"
+
+  # La status line de Claude Code. El script la lee en cada refresco, así que acá alcanza
+  # con reapuntar el symlink: no hay proceso al que avisarle en theme-reload.
+  [claude.conf]="$HOME/.claude/statusline-colors.conf"
+
+  # Antigravity lee config.json, no esto; theme.json es el intermedio que después
+  # inyecta theme-antigravity-apply (ver más abajo).
+  [antigravity.json]="$HOME/.gemini/config/theme.json"
+
+  # starship.toml NO va acá: no se symlinkea, se INYECTA (ver más abajo). starship no
+  # soporta includes y su config tiene el prompt propio, que no se puede sobreescribir.
+)
+
+active_theme() { [[ -r $ACTIVE_FILE ]] && cat "$ACTIVE_FILE" || echo ""; }
+
+list_themes() { find "$THEMES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%P\n' 2>/dev/null | sort; }
+
+case "${1:-}" in
+  --actual) active_theme; exit 0 ;;
+  "")
+    current=$(active_theme)
+    while read -r t; do
+      [[ $t == "$current" ]] && echo "* $t" || echo "  $t"
+    done < <(list_themes)
+    exit 0
+    ;;
+esac
+
+theme="$1"
+theme_dir="$THEMES_DIR/$theme"
+
+# El tema generado se regenera ANTES de comprobar que exista, no después: su directorio no
+# está versionado, así que puede no existir todavía (máquina nueva) o haber desaparecido. Con
+# la comprobación primero, `theme-set matugen` fallaba con "no existe el tema" justo en el
+# único caso en el que sabe arreglarlo solo.
+if [[ $theme == matugen ]]; then
+  THEME_SET_RUNNING=1 theme-matugen >/dev/null
+fi
+
+if [[ ! -d $theme_dir ]]; then
+  echo "theme-set: no existe el tema '$theme'. Disponibles:" >&2
+  list_themes | sed 's/^/  /' >&2
+  exit 1
+fi
+
+for file in "${!TARGETS[@]}"; do
+  src="$theme_dir/$file"
+
+  if [[ ! -f $src ]]; then
+    echo "theme-set: aviso — '$theme' no define $file, se deja el symlink como estaba" >&2
+    continue
+  fi
+
+  # Sin comillas a propósito: TARGETS puede traer varios destinos separados por espacio.
+  for dst in ${TARGETS[$file]}; do
+    mkdir -p "$(dirname "$dst")"
+    ln -sfn "$src" "$dst"
+  done
+done
+
+# Starship lo maneja `theme-reload` (ver ahí el porqué): necesita correr también en el
+# camino del wallpaper, no solo acá.
+
+echo "$theme" > "$ACTIVE_FILE"
+
+# ─── Avisarle a lo que ya está corriendo ───
+# El bloque vive en `theme-reload` porque lo comparte con theme-matugen: cambiar de tema
+# y cambiar de wallpaper son dos caminos distintos que necesitan avisar lo mismo.
+theme-reload
+
+echo "theme-set: activado '$theme'"

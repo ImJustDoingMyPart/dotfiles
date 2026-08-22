@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# Dibuja la hora HH:MM como arte de bloques para el label del reloj de hyprlock.
+#
+# Uso:  hyprlock-clock [--estilo omarchy|lazyvim] [--alto FACTOR] \
+#                      [color_hora] [color_dospuntos] [color_minutos]
+#
+# POR QUÉ EXISTE: el reloj de hyprlock era `date +%H:%M` con font_size 96, o sea la
+# tipografía del sistema en grande. Lo que se pide acá es otra cosa: las letras de las
+# pantallas de inicio de Omarchy / LazyVim — macizas, "en bits". Ninguna tipografía
+# instalada hace eso; el efecto no es una fuente sino ARTE ASCII: cada dígito se compone
+# con █ (U+2588) y, según el estilo, las esquinas de caja ╔╗╚╝═║. Los dos juegos de glifos
+# salieron de archivos .flf de figlet (colección xero/figlet-fonts) con un parser del
+# formato, y están pegados acá ya rellenados: figlet NO hace falta en runtime.
+#
+# ─── Los dos estilos ───
+#
+#   omarchy  (default)  figlet "ANSI Regular": bloque macizo, sin bisel. 5 filas.
+#   lazyvim             figlet "ANSI Shadow": el mismo bloque pero con el bisel de sombra
+#                       dibujado con ╔╗╚╝═║. 6 filas. Es, literalmente, la tipografía del
+#                       logo del dashboard de LazyVim.
+#
+# > OJO con el nombre "omarchy": el logo de Omarchy está hecho en la figlet **Delta Corps
+# > Priest 1** (verificado comparando su `logo.txt` contra las 376 fuentes de la colección).
+# > Esa fuente **no tiene dígitos** — los glifos 0-9 de su .flf están vacíos, así que un
+# > RELOJ en la tipografía exacta de Omarchy no existe. "ANSI Regular" es la más cercana que
+# > sí los trae: mismo idioma —bloque sólido, sin bisel, sin sombra— que es justo lo que
+# > separa el logo de Omarchy del de LazyVim.
+#
+# ─── Las tres cosas que hay que saber para tocar esto ───
+#
+# 1. ANCHO FIJO. En los .flf los dígitos tienen anchos distintos (el '1' mide 4 columnas y
+#    el '0' mide 9). Como el label está centrado (halign = center), un reloj de ancho
+#    variable SALTA de lugar cada vez que cambia el minuto — 10:00 y 13:45 no miden lo
+#    mismo. Acá cada dígito viene rellenado a 9 columnas y centrado dentro de esas 9, que
+#    es el equivalente de las "cifras tabulares" de un reloj de verdad.
+#
+# 2. line_height. Pango separa las líneas según las métricas de la fuente, y el bloque
+#    lleno NO llega a ocupar todo ese alto: entre fila y fila queda una ranura oscura y el
+#    arte se lee como si tuviera scanlines. El atributo `line_height` de markup (pango
+#    1.50+; acá corre 1.58) multiplica el alto de línea y cierra la costura. hyprlock pasa
+#    el texto por pango_parse_markup y le mete la lista de atributos al layout
+#    (hyprgraphics, TextResource.cpp), así que el atributo llega tal cual.
+#
+# 2b. EL TAMAÑO NO ES LIBRE (esto lo fija hyprlock.conf, no el script, pero se rompe acá).
+#    Con el bloque macizo hay tamaños en los que el glifo hinteado queda 1 px más angosto que
+#    su avance, y entre carácter y carácter aparece una ranura vertical: el reloj se ve como
+#    una pared de ladrillos. Medido sobre la fuente instalada, el patrón se repite cada 5
+#    puntos — sirven 18 19 20 · 23 24 25 · 28 29 30, y NO sirven 16 17 · 21 22 · 26 27.
+#
+# 3. Los colores llegan por ARGUMENTO y no se leen de ningún lado: los pone hyprlock.conf
+#    sustituyendo las variables del tema, exactamente igual que cuando el reloj era un
+#    `date` con markup. Vienen en forma pango (#rrggbb), no en la forma rgb() de hyprlang.
+#
+# Salida: el arte en markup de pango. El texto multilínea sobrevive porque
+# `general:text_trim` de hyprlock solo recorta los extremos del comando, no lo de adentro.
+
+set -euo pipefail
+
+ESTILO=omarchy
+
+# 0.78 es el valor medido: cierra la ranura entre filas sin que el ink se salga del alto
+# lógico del layout (hyprlock dimensiona la textura con el rectángulo LÓGICO, así que un
+# valor más chico recorta el arte por abajo en vez de compactarlo).
+ALTO_LINEA=0.78
+
+while [[ ${1:-} == --* ]]; do
+  case $1 in
+    --estilo) ESTILO=$2; shift 2 ;;
+    --alto) ALTO_LINEA=$2; shift 2 ;;
+    *) echo "hyprlock-clock: opción desconocida $1" >&2; exit 1 ;;
+  esac
+done
+
+C_HORA="${1:-#ffffff}"
+C_COLON="${2:-#ffffff}"
+C_MIN="${3:-#ffffff}"
+
+# ─── Los glifos ───
+#
+# Rellenados a 9 columnas y centrados dentro de esas 9 (ver punto 1 de arriba). Los dos
+# puntos van con su ancho natural: no necesitan ancho fijo porque siempre es el mismo
+# carácter.
+
+declare -A GLIFO_OMARCHY=(
+  [0]=$' ██████  \n██  ████ \n██ ██ ██ \n████  ██ \n ██████  '
+  [1]=$'   ██    \n  ███    \n   ██    \n   ██    \n   ██    '
+  [2]=$'██████   \n     ██  \n █████   \n██       \n███████  '
+  [3]=$'██████   \n     ██  \n █████   \n     ██  \n██████   '
+  [4]=$'██   ██  \n██   ██  \n███████  \n     ██  \n     ██  '
+  [5]=$'███████  \n██       \n███████  \n     ██  \n███████  '
+  [6]=$' ██████  \n██       \n███████  \n██    ██ \n ██████  '
+  [7]=$'███████  \n     ██  \n    ██   \n   ██    \n   ██    '
+  [8]=$' █████   \n██   ██  \n █████   \n██   ██  \n █████   '
+  [9]=$' █████   \n██   ██  \n ██████  \n     ██  \n █████   '
+  [:]=$'   \n██ \n   \n██ \n   '
+)
+
+declare -A GLIFO_LAZYVIM=(
+  [0]=$' ██████╗ \n██╔═████╗\n██║██╔██║\n████╔╝██║\n╚██████╔╝\n ╚═════╝ '
+  [1]=$'   ██╗   \n  ███║   \n  ╚██║   \n   ██║   \n   ██║   \n   ╚═╝   '
+  [2]=$'██████╗  \n╚════██╗ \n █████╔╝ \n██╔═══╝  \n███████╗ \n╚══════╝ '
+  [3]=$'██████╗  \n╚════██╗ \n █████╔╝ \n ╚═══██╗ \n██████╔╝ \n╚═════╝  '
+  [4]=$'██╗  ██╗ \n██║  ██║ \n███████║ \n╚════██║ \n     ██║ \n     ╚═╝ '
+  [5]=$'███████╗ \n██╔════╝ \n███████╗ \n╚════██║ \n███████║ \n╚══════╝ '
+  [6]=$' ██████╗ \n██╔════╝ \n███████╗ \n██╔═══██╗\n╚██████╔╝\n ╚═════╝ '
+  [7]=$'███████╗ \n╚════██║ \n    ██╔╝ \n   ██╔╝  \n   ██║   \n   ╚═╝   '
+  [8]=$' █████╗  \n██╔══██╗ \n╚█████╔╝ \n██╔══██╗ \n╚█████╔╝ \n ╚════╝  '
+  [9]=$' █████╗  \n██╔══██╗ \n╚██████║ \n ╚═══██║ \n █████╔╝ \n ╚════╝  '
+  [:]=$'   \n██╗\n╚═╝\n██╗\n╚═╝\n   '
+)
+
+# COLCHON: si el estilo necesita una línea vacía al final. Explicado abajo, donde se emite.
+case $ESTILO in
+  omarchy) declare -n GLIFO=GLIFO_OMARCHY; COLCHON=si ;;
+  lazyvim) declare -n GLIFO=GLIFO_LAZYVIM; COLCHON=no ;;
+  *) echo "hyprlock-clock: estilo desconocido '$ESTILO' (omarchy | lazyvim)" >&2; exit 1 ;;
+esac
+
+# Partir los glifos en filas UNA sola vez. La alternativa (partirlos dentro del bucle de
+# abajo) hace decenas de here-strings por segundo, y cada here-string es un archivo temporal.
+declare -A FILA
+FILAS=0
+for ch in "${!GLIFO[@]}"; do
+  mapfile -t f <<<"${GLIFO[$ch]}"
+  FILAS=${#f[@]}
+  for ((r = 0; r < FILAS; r++)); do FILA["$ch:$r"]=${f[r]}; done
+done
+
+# Concatena la fila $2 de cada carácter de la cadena $1.
+segmento() {
+  local s=$1 r=$2 out=""
+  for ((i = 0; i < ${#s}; i++)); do out+=${FILA["${s:i:1}:$r"]}; done
+  printf '%s' "$out"
+}
+
+hora=$(date +%H)
+min=$(date +%M)
+
+# El span de line_height arranca en la SEGUNDA fila, no envolviendo a todas. El motivo es
+# de recorte: pango achica la caja de la línea alrededor de su base, así que si la primera
+# también se achica, su tinta se sale por arriba del rectángulo lógico y hyprlock —que
+# dimensiona la textura con ese rectángulo— le come el borde superior a los dígitos
+# (medido: 6 px con line_height 0.78). Achicar de la segunda en adelante junta igual las
+# filas, porque lo que cierra la ranura es la caja de la línea de ABAJO.
+for ((r = 0; r < FILAS; r++)); do
+  ((r > 0)) && printf '\n'
+  ((r == 1)) && printf "<span line_height='%s'>" "$ALTO_LINEA"
+  printf "<span foreground='%s'>%s</span>" "$C_HORA" "$(segmento "$hora" "$r")"
+  printf "<span foreground='%s'>%s</span>" "$C_COLON" "$(segmento ':' "$r")"
+  printf "<span foreground='%s'>%s</span>" "$C_MIN" "$(segmento "$min" "$r")"
+done
+printf '</span>'
+
+# Fila de colchón: una línea vacía, con su propio alto de línea mínimo.
+#
+# Es el mismo problema que el párrafo de arriba pero por el otro lado, y SOLO lo tiene el
+# estilo `omarchy`: sus bloques macizos hacen que la última fila baje hasta el piso de su
+# caja de línea, y esa caja está achicada, así que la tinta sobra ~4 px por abajo del
+# rectángulo lógico y hyprlock le afeita el borde inferior al arte.
+#
+# Cerrar el span una fila antes tapaba el recorte pero reabría la ranura entre las dos
+# últimas filas, que se ve mucho más. Esta línea vacía agranda el rectángulo lógico lo justo
+# para que la tinta entre entera.
+#
+# `lazyvim` NO la lleva —su última fila es el filete fino `╚═════╝`, que no llega tan abajo—
+# y es importante que no la lleve: el colchón mete unos 30 px de vacío al pie de la textura,
+# y como hyprlock centra la TEXTURA en `position`, ese vacío correría el arte hacia arriba y
+# desalinearía los espaciados calculados en hyprlock.conf.
+[[ $COLCHON == si ]] && printf "\n<span line_height='0.25'> </span>"
+
+exit 0

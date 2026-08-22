@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""Inyecta la paleta del tema activo dentro de ~/.config/starship.toml.
+
+Por qué existe en vez de dejar que matugen escriba el archivo:
+starship.toml tiene el PROMPT de Roberto (formato, módulos, símbolos), y matugen
+sobreescribe el archivo entero. Generarlo desde una plantilla borraría esa
+configuración en cada cambio de wallpaper. Y starship no soporta includes, así que
+tampoco se puede partir en dos archivos.
+
+Noctalia resolvía lo mismo inyectando entre marcadores; acá se replica igual, pero
+con marcadores propios. La única diferencia es quién escribe el bloque.
+
+Se ejecuta como post_hook del template de matugen, y también desde theme-set cuando
+se activa un tema curado (donde no interviene matugen).
+"""
+
+import pathlib
+import sys
+
+BEGIN = "# >>> THEME STARSHIP PALETTE >>>"
+END = "# <<< THEME STARSHIP PALETTE <<<"
+
+# Marcadores que dejó Noctalia. Se limpian si están, para que no queden dos paletas
+# peleando: la vieja quedaría definida y `palette = "theme"` no la usaría, pero es
+# ruido muerto en un archivo que Roberto edita a mano.
+LEGACY = ("# >>> NOCTALIA STARSHIP PALETTE >>>", "# <<< NOCTALIA STARSHIP PALETTE <<<")
+
+starship = pathlib.Path.home() / ".config" / "starship.toml"
+palette = pathlib.Path.home() / ".config" / "themes" / ".starship-palette.toml"
+
+
+def strip_block(text: str, begin: str, end: str) -> str:
+    """Saca un bloque delimitado, si existe. Tolera que falte el cierre."""
+    i = text.find(begin)
+    if i == -1:
+        return text
+    j = text.find(end, i)
+    if j == -1:
+        return text[:i].rstrip() + "\n"
+    return (text[:i].rstrip() + "\n" + text[j + len(end):].lstrip("\n")).rstrip() + "\n"
+
+
+def main() -> int:
+    if not palette.is_file():
+        print(f"starship-palette-apply: no existe {palette}", file=sys.stderr)
+        return 1
+    if not starship.is_file():
+        print(f"starship-palette-apply: no existe {starship}, nada que hacer")
+        return 0
+
+    text = starship.read_text(encoding="utf-8")
+    block = palette.read_text(encoding="utf-8").strip()
+
+    text = strip_block(text, *LEGACY)
+    text = strip_block(text, BEGIN, END)
+
+    text = text.rstrip() + f"\n\n{BEGIN}\n{block}\n{END}\n"
+
+    # `palette = "theme"` tiene que apuntar a la paleta que se acaba de inyectar. Si
+    # todavía dice "noctalia", el prompt se quedaría sin colores al desaparecer aquel
+    # bloque.
+    lines = text.splitlines()
+    for n, line in enumerate(lines):
+        if line.strip().startswith("palette ") and "=" in line:
+            lines[n] = 'palette = "theme"'
+            break
+    else:
+        lines.insert(0, 'palette = "theme"')
+    text = "\n".join(lines) + "\n"
+
+    starship.write_text(text, encoding="utf-8")
+    print("starship-palette-apply: paleta inyectada")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

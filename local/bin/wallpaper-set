@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# Fija el wallpaper y, si el tema activo es el generado, recalcula los colores.
+#
+# Uso:  wallpaper-set <imagen>
+#       wallpaper-set --actual      imprime el wallpaper actual
+#
+# Es el punto único por donde pasa un cambio de fondo. Importa que sea uno solo:
+# el color del sistema se deriva del wallpaper, así que "cambiar el fondo" y
+# "recalcular el tema" tienen que ser una sola operación o quedan desincronizados.
+#
+# Reemplaza al selector de wallpaper de Noctalia (Mod+Y en el esquema viejo).
+
+set -euo pipefail
+
+STATE_FILE="$HOME/.local/state/wallpaper"
+
+# El daemon guarda esto en su propio cache y lo restaura con `awww restore`, pero
+# igual se escribe un archivo de estado propio: es lo que lee theme-matugen cuando
+# el daemon todavía no levantó (p. ej. si se regenera el tema durante el login).
+
+if [[ ${1:-} == "--actual" ]]; then
+  [[ -r $STATE_FILE ]] && cat "$STATE_FILE" && exit 0
+  # Fallback: preguntarle al daemon.
+  awww query 2>/dev/null | sed -n 's/.*currently displaying: image: //p' | head -1
+  exit 0
+fi
+
+img="${1:-}"
+
+if [[ -z $img || ! -r $img ]]; then
+  echo "wallpaper-set: pasá una imagen legible" >&2
+  exit 1
+fi
+
+# Ruta absoluta: el estado se lee después desde otros procesos, y una relativa
+# dependería del directorio desde el que se ejecutó el menú.
+img=$(realpath "$img")
+
+# awww img falla si el daemon no está corriendo, así que se levanta on-demand.
+# En uso normal ya lo levantó el autostart; esto cubre el primer arranque y el
+# caso de que se haya caído.
+if ! pgrep -x awww-daemon >/dev/null; then
+  awww-daemon &
+  # El daemon tarda en tomar la capa; sin esta espera el primer `img` se pierde.
+  for _ in $(seq 20); do
+    awww query >/dev/null 2>&1 && break
+    sleep 0.1
+  done
+fi
+
+# ─── La transición ───
+#
+# Se sortea, en `wallpaper-transition`: tipo Y parámetros, para que dos cambios de fondo no se
+# vean nunca igual (antes acá había un `--transition-type fade` fijo). El sorteo vive en un
+# script aparte porque son ~40 líneas de recetas y acá taparían lo que este script hace.
+#
+# `WALLPAPER_TRANSITION=<tipo>` sigue funcionando como antes y desactiva el sorteo — el script
+# lo respeta y devuelve ese tipo pelado.
+#
+# Se sortea UNA sola vez y se reusa para las dos capas: el fondo del escritorio y el backdrop
+# del overview tienen que animarse con el mismo efecto, o al abrir el overview durante un
+# cambio se ven dos transiciones distintas corriendo. Y va DESPUÉS del `--actual` de arriba a
+# propósito: esa rama es una consulta, no un cambio de fondo, y quemarle un sorteo en cada
+# llamada le arruinaría al script del sorteo la regla de "no repetir la anterior".
+mapfile -t TRANSICION < <(wallpaper-transition)
+
+awww img "$img" "${TRANSICION[@]}"
+
+mkdir -p "$(dirname "$STATE_FILE")"
+printf '%s\n' "$img" > "$STATE_FILE"
+
+# ─── Copia desenfocada para el fondo del overview ───
+#
+# El overview de niri muestra el "backdrop", una capa aparte de la del escritorio. La
+# opción `place-within-backdrop` MUEVE una capa ahí en vez de duplicarla, así que
+# aplicársela a la capa del escritorio deja el escritorio sin fondo (pasó el 2026-08-04).
+# Por eso hay un SEGUNDO daemon de awww, con namespace propio, que publica una segunda
+# capa dedicada al backdrop: ~/.config/systemd/user/awww-backdrop.service.
+#
+# El desenfoque va horneado en la imagen y NO lo hace el compositor: el
+# `background-effect { blur }` de una layer-rule desenfoca lo que está DETRÁS de la
+# superficie, y una capa de wallpaper es opaca y no tiene nada detrás (probado el
+# 2026-08-05: el overview salía igual de nítido). Es el mismo enfoque que usaba Noctalia,
+# que publicaba su "noctalia-backdrop" ya blureado y tintado.
+#
+# El truco del `-resize 25% / -blur / -resize 400%`: desenfocar a resolución completa es
+# caro y da lo mismo a la vista. Así tarda ~0,36 s con un wallpaper de 4K.
+BACKDROP_IMG="$HOME/.local/state/wallpaper-backdrop.png"
+BACKDROP_BLUR="${WALLPAPER_BACKDROP_BLUR:-0x8}"
+# Se oscurece un poco para que las ventanas del overview se despeguen del fondo.
+BACKDROP_DIM="${WALLPAPER_BACKDROP_DIM:--12x-8}"
+
+if command -v magick >/dev/null; then
+  geom=$(niri msg outputs 2>/dev/null |
+    sed -n 's/^\s*Current mode:\s*\([0-9]\+x[0-9]\+\).*/\1/p' | head -1)
+  geom="${geom:-1920x1080}"
+
+  magick "$img" -resize "${geom}^" -gravity center -extent "$geom" \
+    -resize 25% -blur "$BACKDROP_BLUR" -resize 400% \
+    -brightness-contrast "$BACKDROP_DIM" \
+    -strip "PNG24:$BACKDROP_IMG" 2>/dev/null || rm -f "$BACKDROP_IMG"
+fi
+
+# El daemon del backdrop puede no estar corriendo (sesión vieja, servicio deshabilitado).
+# Si no está, esto no rompe nada: el overview simplemente vuelve al color plano.
+#
+# `--namespace=-backdrop` CON EL IGUAL, no separado por espacio: el namespace empieza con
+# guion y el parser de argumentos de awww lo toma como una opción corta ("unexpected
+# argument '-b' found"). Con el espacio, el comando falla, este `if` da falso y la copia
+# desenfocada nunca llega al daemon — que fue justo lo que pasó la primera vez.
+if [[ -r $BACKDROP_IMG ]] && awww query --namespace=-backdrop >/dev/null 2>&1; then
+  awww img "$BACKDROP_IMG" --namespace=-backdrop "${TRANSICION[@]}"
+fi
+
+# ─── Copia para el lock ───
+# hyprlock lee su fondo de una RUTA FIJA (~/.config/hypr/hyprlock.conf): su config es
+# estática y el wallpaper cambia, así que el puente entre los dos es este archivo.
+#
+# El motivo original de la copia era otro y ya no aplica: swaylock solo leía PNG (no linkea
+# gdk-pixbuf ni libjpeg) y más de la mitad de los wallpapers de esta máquina son .jpg, así
+# que el fondo fallaba en silencio. hyprlock SÍ linkea libjpeg y libwebp (verificado con
+# ldd) y podría abrir el original.
+#
+# La copia se conserva igual por las otras dos razones, que siguen valiendo: la ruta fija, y
+# que normalizar acá —PNG24, al tamaño de la pantalla— hace que el bloqueo sea instantáneo
+# en vez de decodificar un 4K en el momento en que se aprieta la tecla.
+LOCK_IMG="$HOME/.local/state/wallpaper-lock.png"
+
+if command -v magick >/dev/null; then
+  # Tamaño de la pantalla desde la salida de texto de niri ("Current mode: 1920x1080 @ ...").
+  # Se usa sed y no el JSON para no tener que embeber un parser dentro del script.
+  geom=$(niri msg outputs 2>/dev/null |
+    sed -n 's/^\s*Current mode:\s*\([0-9]\+x[0-9]\+\).*/\1/p' | head -1)
+  geom="${geom:-1920x1080}"
+
+  # `-resize ^` escala hasta CUBRIR y `-extent` recorta centrado: mismo encuadre que
+  # `--scaling fill` de swaylock, pero hecho una sola vez acá.
+  magick "$img" -resize "${geom}^" -gravity center -extent "$geom" \
+    -strip -define png:color-type=2 "PNG24:$LOCK_IMG" 2>/dev/null || rm -f "$LOCK_IMG"
+fi
+
+# Solo el tema generado depende del wallpaper. Si el activo es uno curado
+# (gruvbox, etc.) cambiar el fondo NO tiene que tocarle los colores — esa es
+# justamente la diferencia entre las dos mitades del híbrido.
+if [[ $(theme-set --actual 2>/dev/null) == "matugen" ]]; then
+  theme-matugen "$img"
+fi
+
+echo "wallpaper-set: $img"

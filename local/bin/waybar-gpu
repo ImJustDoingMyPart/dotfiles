@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Módulo custom de Waybar: uso y temperatura de la GPU discreta (RX 6700 XT).
+#
+# Waybar no trae módulo de GPU: `cpu`, `memory` y `temperature` existen, GPU no.
+# amdgpu expone todo por sysfs, así que alcanza con leer tres archivos.
+#
+# Se usa la ruta por PCI (/sys/bus/pci/devices/0000:03:00.0) y no /sys/class/drm/cardN
+# porque el número de card baila entre arranques: en esta máquina hay DOS amdgpu
+# (la dedicada en 03:00.0 y la iGPU Raphael del 7000 en 12:00.0) y cuál toma card0
+# depende del orden de sondeo. El BDF del PCI, en cambio, es fijo.
+#
+# Salida JSON (return-type: json en config.jsonc): text, tooltip, class, percentage.
+
+set -euo pipefail
+
+GPU_PCI="/sys/bus/pci/devices/0000:03:00.0"
+
+read_or() { [[ -r "$1" ]] && cat "$1" || echo "$2"; }
+
+busy=$(read_or "$GPU_PCI/gpu_busy_percent" 0)
+
+# hwmon# tampoco es estable: se resuelve el glob dentro del device, que sí lo es.
+hwmon=$(echo "$GPU_PCI"/hwmon/hwmon*)
+temp_mc=$(read_or "$hwmon/temp1_input" 0)   # temp1 = edge (temp2 = junction, temp3 = mem)
+temp=$((temp_mc / 1000))
+
+vram_used=$(read_or "$GPU_PCI/mem_info_vram_used" 0)
+vram_total=$(read_or "$GPU_PCI/mem_info_vram_total" 1)
+vram_used_mb=$((vram_used / 1024 / 1024))
+vram_total_mb=$((vram_total / 1024 / 1024))
+
+# Mismos umbrales que states de los otros módulos, para que el CSS sea uno solo.
+if   (( temp >= 90 )); then class="critical"
+elif (( temp >= 80 )); then class="warning"
+else                        class=""
+fi
+
+printf '{"text":"%s%%","percentage":%s,"class":"%s","tooltip":"GPU %s%%  ·  %s°C\\nVRAM %s / %s MiB"}\n' \
+  "$busy" "$busy" "$class" "$busy" "$temp" "$vram_used_mb" "$vram_total_mb"

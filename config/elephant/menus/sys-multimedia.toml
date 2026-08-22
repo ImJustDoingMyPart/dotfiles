@@ -1,0 +1,44 @@
+# Categoría del índice de `Mod+,`. Generada al agrupar la lista plana de 16 entradas
+# (2026-08-06), que en orden arbitrario era difícil de recorrer.
+#
+# `parent = "system"` es lo que hace que la flecha IZQUIERDA vuelva al índice. No se hereda:
+# cada menú tiene que declararlo. Los menús HOJA que se abren desde acá declaran a su vez
+# `parent = "sys-multimedia"`, para que el atrás los devuelva a esta categoría y no al índice.
+#
+# `fixed_order = true` es obligatorio: sin eso elephant reordena por score y el orden
+# alfabético se pierde. Ya pasó con la agenda.
+
+name = "sys-multimedia"
+name_pretty = "Multimedia"
+description = "audio y reproductor"
+icon = "applications-multimedia"
+parent = "system"
+fixed_order = true
+
+# ─── Los dos "Audio por…" son un PAR a propósito (2026-08-08) ───
+#
+# Antes eran "Audio por aplicación" y "Salida de audio por defecto": dos nombres de forma
+# distinta para las dos mitades de la misma decisión, así que había que leer los subtextos
+# para darse cuenta de que eran alternativas entre sí. Ahora comparten el prefijo
+# "Audio por " y se diferencian solo en el eje que de verdad los separa —defecto contra
+# aplicación—, que es la única pregunta: ¿cambio adónde va TODO, o adónde va este programa?
+#
+# El orden alfabético los deja pegados, que es justo lo que se quiere.
+[[entries]]
+text = "Audio por aplicación"
+subtext = "mandar cada programa a una salida distinta"
+keywords = ["audio", "app", "spotify", "discord", "salida", "sink", "rutear"]
+icon = "applications-multimedia"
+submenu = "audio"
+[[entries]]
+text = "Audio por defecto"
+subtext = "cambia adónde va TODO · provider wireplumber"
+keywords = ["audio", "volumen", "salida", "default", "defecto", "parlantes", "auriculares"]
+icon = "multimedia-volume-control"
+actions = { "abrir" = "sh -c 'sleep 0.2; walker --provider wireplumber'" }
+[[entries]]
+text = "Reproductor"
+subtext = "play, pausa y pistas del reproductor activo"
+keywords = ["player", "playerctl", "musica", "media", "reproductor"]
+icon = "cs-sound"
+actions = { "abrir" = "sh -c 'sleep 0.2; walker --provider playerctl'" }

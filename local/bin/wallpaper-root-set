@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Fija la CARPETA RAÍZ donde el menú de wallpapers busca colecciones.
+#
+# Uso:  wallpaper-root-set <carpeta>
+#       wallpaper-root-set --actual     imprime la raíz vigente
+#       wallpaper-root-set --reset      vuelve al default (borra el estado)
+#
+# Por qué un archivo de estado y no una variable de entorno: elephant corre como
+# servicio systemd de usuario, así que una env var solo cambia con
+# `systemctl --user restart elephant`. El archivo lo relee el menú en cada apertura
+# —`Cache = false` en wallpapers.lua— y el cambio se ve al instante.
+#
+# Por qué un script y no una función Lua adentro del menú: así la raíz también se
+# cambia desde la terminal y desde cualquier otro script, igual que `wallpaper-set`
+# y `theme-set`. El menú es una puerta más, no la única.
+
+set -euo pipefail
+
+STATE_FILE="$HOME/.local/state/wallpaper-root"
+DEFAULT_DIR="$HOME/Imágenes"
+
+actual() {
+  if [[ -r $STATE_FILE ]]; then
+    local dir
+    dir=$(<"$STATE_FILE")
+    # Una raíz que ya no existe (disco desmontado, carpeta renombrada) no se reporta:
+    # el menú tiene que caer al default en vez de mostrar una lista vacía.
+    if [[ -d $dir ]]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+  fi
+  printf '%s\n' "${WALLPAPERS_DIR:-$DEFAULT_DIR}"
+}
+
+case "${1:-}" in
+--actual)
+  actual
+  exit 0
+  ;;
+--reset)
+  rm -f "$STATE_FILE"
+  printf 'wallpaper-root-set: %s (default)\n' "$(actual)"
+  exit 0
+  ;;
+esac
+
+dir="${1:-}"
+
+if [[ -z $dir || ! -d $dir ]]; then
+  echo "wallpaper-root-set: pasá una carpeta existente" >&2
+  exit 1
+fi
+
+# Ruta absoluta y sin symlinks: el estado lo lee después otro proceso (el menú, que
+# corre desde el cwd de elephant), y una relativa apuntaría a cualquier lado.
+dir=$(realpath "$dir")
+
+mkdir -p "$(dirname "$STATE_FILE")"
+printf '%s\n' "$dir" > "$STATE_FILE"
+
+# Las miniaturas de la carpeta nueva, en segundo plano. Los menús también las piden solos
+# cuando ven que faltan, pero ahí ya se está mirando la lista; acá se adelanta al momento en
+# que se sabe qué carpeta se va a mirar, que es el único instante en que la espera no se ve.
+# El `flock -n` del script hace que dos llamadas seguidas no se pisen.
+if command -v wallpaper-thumbs >/dev/null; then
+	wallpaper-thumbs "$dir" >/dev/null 2>&1 &
+	disown
+fi
+
+echo "wallpaper-root-set: $dir"

@@ -1,0 +1,23 @@
+include "./cfg/animation.kdl"
+include "./cfg/autostart.kdl"
+include "./cfg/keybinds.kdl"
+include "./cfg/input.kdl"
+include "./cfg/display.kdl"
+include "./cfg/layout.kdl"
+include "./cfg/rules.kdl"
+include "./cfg/misc.kdl"
+
+// Colores de bordes/focus-ring/tabs, sincronizados con el tema activo.
+// theme-colors.kdl es un SYMLINK que maneja `theme-set`, igual que el theme.css de waybar,
+// walker y swaync. Si el tema activo es "matugen", el archivo lo escribe matugen desde el
+// wallpaper; si es uno curado, está versionado a mano.
+//
+// Reemplaza a los dos includes que generaba Noctalia (noctalia.kdl del template builtin y
+// noctalia-gradient.kdl del user template), que se unificaron en un solo archivo.
+include "./theme-colors.kdl"
+
+// Animaciones de apertura/cierre/workspace gestionadas por el plugin
+// niri-animation-picker (Noctalia). El plugin reescribe la línea include
+// dentro de animations.kdl apuntando al pack elegido en ./animations/.
+// Va AL FINAL para que sobreescriba los valores base de cfg/animation.kdl.
+include "./animations.kdl"

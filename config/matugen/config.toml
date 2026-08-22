@@ -1,0 +1,154 @@
+# matugen 4.1.0 — genera el tema "matugen" a partir del wallpaper.
+#
+# Este archivo NO se invoca a mano: lo usa `theme-matugen <imagen>`, que a su vez
+# se llama desde el switcher de temas. Ver ~/.local/bin/theme-matugen.
+#
+# Dos cosas verificadas contra el binario 4.1.0 instalado, ninguna de las cuales
+# es obvia leyendo la doc:
+#
+# 1. La tabla [config] es OBLIGATORIA aunque quede vacía. Sin ella matugen aborta
+#    con `missing field 'config'`.
+# 2. input_path y output_path tienen que ser ABSOLUTOS. Con rutas relativas falla
+#    con "Failed to get the input and output paths from hashmap", que no dice nada
+#    sobre rutas relativas.
+#
+# La salida NO va directo a ~/.config/waybar/theme.css: va a ~/.config/themes/matugen/,
+# que es un tema más dentro de la estructura del switcher. Así "matugen" convive con
+# temas curados (gruvbox, etc.) y se elige del mismo menú; el symlink theme.css apunta
+# al tema activo, sea generado o curado.
+
+[config]
+
+# ─── Colores propios para la escala de cuota de Claude Code ───
+#
+# Por qué no salen de roles de Material: la barra de cuota necesita TRES colores que se
+# distingan entre sí a simple vista (queda mucho / poco / casi nada), y M3 no da tres.
+# Con el wallpaper del 2026-08-15 el intento inicial —ok=primary, crit=error— rendía
+# ok=#ffb5a0 y crit=#ffb4ab: dos salmones indistinguibles, es decir, justo la distinción
+# que más importa perdida. Un esquema tonal se construye alrededor de UN matiz; pedirle
+# semáforo es pedirle lo que no tiene.
+#
+# `blend = true` es la clave: matugen armoniza cada color hacia la paleta del wallpaper
+# en vez de plantarlo crudo. El verde sigue siendo verde y el rojo, rojo —el semáforo se
+# lee— pero los dos quedan teñidos por el tema y la barra no parece pegoteada de otro
+# lado. La estructura `{ color, blend }` está verificada contra el binario 4.1.0
+# (ColorDefinition, 2 campos), no contra la doc.
+[config.custom_colors]
+quota_ok   = { color = "#4caf50", blend = true }
+quota_warn = { color = "#ffb300", blend = true }
+quota_crit = { color = "#e53935", blend = true }
+
+# La barra. Se llama "bar" y no "ironbar" a propósito: el archivo es la paleta de la
+# barra, no de un programa. Se llamaba waybar.css hasta el 2026-08-14.
+[templates.bar]
+input_path  = "/home/anon/.config/matugen/templates/bar.css"
+output_path = "/home/anon/.config/themes/matugen/bar.css"
+
+[templates.walker]
+input_path  = "/home/anon/.config/matugen/templates/walker.css"
+output_path = "/home/anon/.config/themes/matugen/walker.css"
+
+
+
+[templates.niri]
+input_path  = "/home/anon/.config/matugen/templates/niri.kdl"
+output_path = "/home/anon/.config/themes/matugen/niri.kdl"
+
+[templates.kitty]
+input_path  = "/home/anon/.config/matugen/templates/kitty.conf"
+output_path = "/home/anon/.config/themes/matugen/kitty.conf"
+
+# Alacritty se conserva mientras dure la convivencia con kitty (migración 2026-08-07).
+# Se borra junto con el paquete, su template y ~/.config/alacritty.
+[templates.alacritty]
+input_path  = "/home/anon/.config/matugen/templates/alacritty.toml"
+output_path = "/home/anon/.config/themes/matugen/alacritty.toml"
+
+[templates.btop]
+input_path  = "/home/anon/.config/matugen/templates/btop.theme"
+output_path = "/home/anon/.config/themes/matugen/btop.theme"
+
+[templates.gtk]
+input_path  = "/home/anon/.config/matugen/templates/gtk.css"
+output_path = "/home/anon/.config/themes/matugen/gtk.css"
+
+# La status line de Claude Code. No es un programa gráfico: el archivo es CLAVE=#hex y
+# lo lee ~/.local/bin/claude-statusline en cada refresco de la barra, así que no hace
+# falta avisarle nada a nadie en theme-reload — el color nuevo entra en el próximo dibujo.
+[templates.claude]
+input_path  = "/home/anon/.config/matugen/templates/claude.conf"
+output_path = "/home/anon/.config/themes/matugen/claude.conf"
+
+[templates.starship]
+input_path  = "/home/anon/.config/matugen/templates/starship-palette.toml"
+output_path = "/home/anon/.config/themes/matugen/starship.toml"
+
+[templates.mako]
+input_path  = "/home/anon/.config/matugen/templates/mako"
+output_path = "/home/anon/.config/themes/matugen/mako"
+
+# Pantalla de bloqueo. Desde la migración a hyprlock (2026-08-13) el template genera SOLO
+# los colores: la estructura vive en ~/.config/hypr/hyprlock.conf, que lo trae con `source`.
+# El template viejo (`swaylock`) generaba la config entera porque swaylock no tiene include.
+[templates.hyprlock]
+input_path  = "/home/anon/.config/matugen/templates/hyprlock.conf"
+output_path = "/home/anon/.config/themes/matugen/hyprlock.conf"
+
+# OSD de volumen y brillo. Usa los MISMOS roles que mako a propósito: son las dos
+# superficies efímeras del escritorio y tienen que verse como una sola familia.
+[templates.swayosd]
+input_path  = "/home/anon/.config/matugen/templates/swayosd.css"
+output_path = "/home/anon/.config/themes/matugen/swayosd.css"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Los seis de abajo se agregaron el 2026-08-07 (punto F2 del plan de pulido).
+# Son los templates que habían quedado congelados al salir de Noctalia: conservaban
+# su último render y se veían coherentes, pero ya no cambiaban con el wallpaper.
+#
+# El séptimo congelado, `steam`, NO se portó a propósito: escribía dentro de
+# ~/.steam/steam/steamui/skins/Material-Theme/, y ahí no hay ninguna skin instalada
+# (ni skin.json, ni Millennium, ni SFP). Steam nunca leyó ese archivo.
+#
+# `post_hook` no está en la doc de matugen, pero el binario 4.1.0 sí lo acepta
+# (aparece entre las claves de la struct Template, junto a colors_to_compare y
+# compare_to). Probado: corre después de escribir el output.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Esquema de color de las apps Qt5/Qt6, vía qt5ct/qt6ct.
+[templates.qt]
+input_path  = "/home/anon/.config/matugen/templates/qt.conf"
+output_path = "/home/anon/.config/themes/matugen/qt.conf"
+
+# Resaltado de sintaxis en formato tmTheme. UN solo template para bat y para el
+# previsualizador de yazi: los dos usan syntect y los dos archivos que generaba
+# Noctalia eran byte a byte idénticos. theme-set lo symlinkea a los dos destinos.
+[templates.tmtheme]
+input_path  = "/home/anon/.config/matugen/templates/tmtheme.xml"
+output_path = "/home/anon/.config/themes/matugen/tmtheme.xml"
+post_hook   = "/home/anon/.local/bin/theme-bat-cache"
+
+# La interfaz de yazi (la otra mitad del flavor; el resaltado sale de tmtheme).
+[templates.yazi]
+input_path  = "/home/anon/.config/matugen/templates/yazi-flavor.toml"
+output_path = "/home/anon/.config/themes/matugen/yazi-flavor.toml"
+
+# Snippet CSS de Obsidian. Es el único que se COPIA a destino en vez de symlinkearse:
+# Obsidian recarga los snippets en caliente vigilando la carpeta del vault, y a través de
+# un symlink no ve nada cuando se reescribe el archivo destino. Por eso el post_hook.
+[templates.obsidian]
+input_path  = "/home/anon/.config/matugen/templates/obsidian.css"
+output_path = "/home/anon/.config/themes/matugen/obsidian.css"
+post_hook   = "/home/anon/.local/bin/theme-obsidian-apply"
+
+# Vesktop (Discord). Solo la variante Midnight: es el único cliente instalado y
+# Vencord admite un tema activo a la vez.
+[templates.vesktop]
+input_path  = "/home/anon/.config/matugen/templates/vesktop.css"
+output_path = "/home/anon/.config/themes/matugen/vesktop.css"
+
+# Antigravity. El post_hook es necesario porque el programa lee config.json, no
+# theme.json: hay que inyectarle las semillas de color sin pisarle el resto.
+[templates.antigravity]
+input_path  = "/home/anon/.config/matugen/templates/antigravity.json"
+output_path = "/home/anon/.config/themes/matugen/antigravity.json"
+post_hook   = "/home/anon/.local/bin/theme-antigravity-apply"

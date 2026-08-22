@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# Sortea una transición para `awww img` y la imprime como argumentos, UNO POR LÍNEA.
+#
+# Uso:  mapfile -t args < <(wallpaper-transition)
+#       awww img "$img" "${args[@]}"
+#
+#       wallpaper-transition --explicar   imprime el nombre de la receta sorteada (stderr)
+#
+# POR QUÉ EXISTE: `wallpaper-set` mandaba siempre `--transition-type fade`, así que todos los
+# cambios de fondo se veían igual. Lo que se pide es lo que hace Noctalia: que cada cambio
+# tenga un efecto distinto.
+#
+# HASTA DÓNDE LLEGA ESTO (importa, porque no es lo mismo que Noctalia): Noctalia dibuja el
+# wallpaper ella misma en QML y las transiciones son SHADERS suyos, así que puede inventar
+# efectos nuevos. awww es otra cosa —un daemon aparte, con los efectos compilados adentro— y
+# su repertorio es cerrado: los que lista `awww img --help` de la 0.12.1 y no hay más
+# (none, simple, fade, left, right, top, bottom, wipe, wave, grow, center, any, outer,
+# random). Meter un efecto que awww no tiene exigiría cambiar de daemon, no configurarlo.
+#
+# Lo que SÍ se puede, y es lo que hace este script: que ninguno de esos efectos salga dos
+# veces igual. awww ya trae `--transition-type random`, pero sortea solo el TIPO y deja los
+# parámetros en el default — todos los `wipe` con el mismo ángulo de 45°, todos los `grow`
+# desde el centro. Acá se sortea el tipo Y sus parámetros (ángulo, centro, forma de la onda,
+# curva de bezier, duración), que es de donde sale la variedad de verdad.
+#
+# Cada receta es una función que imprime sus argumentos. Todos los flags salen de
+# `awww img --help` del binario instalado (0.12.1); ver la nota del vault.
+
+set -euo pipefail
+
+ESTADO="$HOME/.local/state/wallpaper-transition"
+
+# Un override explícito gana siempre y NO se sortea nada: es la salida de emergencia para
+# volver al comportamiento viejo (`WALLPAPER_TRANSITION=fade wallpaper-set ...`) y la que usa
+# `wallpaper-outputs-watch`, que necesita `none` sí o sí.
+if [[ -n ${WALLPAPER_TRANSITION:-} && ${WALLPAPER_TRANSITION} != "sorteo" ]]; then
+  printf '%s\n' --transition-type "$WALLPAPER_TRANSITION"
+  exit 0
+fi
+
+# El monitor va a 180 Hz; 60 es el punto donde la animación ya se ve continua sin que el
+# daemon tenga que componer 1080p tres veces por cuadro. El default de awww es 30, que en una
+# barrida diagonal se nota escalonado.
+FPS=60
+
+# Sorteo entero en [$1, $2].
+entre() { echo $((RANDOM % ($2 - $1 + 1) + $1)); }
+# Elige uno de los argumentos.
+uno_de() { local -a o=("$@"); printf '%s' "${o[RANDOM % $#]}"; }
+# Duración en segundos con un decimal.
+dur() { printf '%d.%d' "$1" "$(entre 0 9)"; }
+
+# ─── Recetas ───
+
+# Fundido cruzado. La variedad viene de la curva: la misma duración se siente distinta si la
+# imagen entra de golpe y frena (expo) o si acelera y desacelera parejo (ease-in-out).
+receta_fade() {
+  printf '%s\n' --transition-type fade \
+    --transition-bezier "$(uno_de .25,.1,.25,1 .42,0,.58,1 .16,1,.3,1 .54,0,.34,.99 0,0,1,1)" \
+    --transition-duration "$(dur 1)"
+}
+
+# Barrido recto, con el ángulo al azar. Múltiplos de 15° y no cualquier número: un barrido a
+# 7° se lee como un horizontal mal hecho, no como una diagonal.
+receta_wipe() {
+  printf '%s\n' --transition-type wipe \
+    --transition-angle "$(($(entre 0 23) * 15))" \
+    --transition-duration "$(dur 1)"
+}
+
+# Igual que wipe pero con el filo ondulado. `--transition-wave` es ancho,alto de cada onda:
+# valores chicos dan un borde de sierra fino y valores grandes una ola gruesa.
+receta_wave() {
+  printf '%s\n' --transition-type wave \
+    --transition-angle "$(($(entre 0 23) * 15))" \
+    --transition-wave "$(uno_de 20,20 35,25 12,45 60,20 45,40 15,15)" \
+    --transition-duration "$(dur 1)"
+}
+
+# Círculo que crece desde un punto cualquiera de la pantalla. La posición va en FLOTANTE
+# porque awww lee los enteros como píxeles y los flotantes como porcentaje, y el porcentaje
+# es lo único que sirve igual en cualquier resolución.
+receta_grow() {
+  printf '%s\n' --transition-type grow \
+    --transition-pos "0.$(entre 10 90),0.$(entre 10 90)" \
+    --transition-duration "$(dur 1)"
+}
+
+# El mismo círculo pero al revés: la imagen vieja se cierra sobre un punto.
+receta_outer() {
+  printf '%s\n' --transition-type outer \
+    --transition-pos "0.$(entre 10 90),0.$(entre 10 90)" \
+    --transition-duration "$(dur 1)"
+}
+
+# Los cuatro empujes rectos desde un borde. Son los más sobrios del lote; entran para que no
+# todos los cambios sean "efecto".
+receta_lado() {
+  printf '%s\n' --transition-type "$(uno_de left right top bottom)" \
+    --transition-duration "$(dur 1)"
+}
+
+RECETAS=(fade wipe wave grow outer lado)
+
+# No repetir la receta anterior: con 6 opciones, sortear a ciegas repite una de cada seis
+# veces, y "otra vez el mismo efecto" es justo lo que se venía a resolver. Se guarda solo el
+# nombre, no los parámetros — un wipe a 30° y otro a 195° ya son cambios distintos.
+anterior=""
+[[ -r $ESTADO ]] && anterior=$(<"$ESTADO")
+
+elegida=$(uno_de "${RECETAS[@]}")
+for _ in 1 2 3; do
+  [[ $elegida != "$anterior" ]] && break
+  elegida=$(uno_de "${RECETAS[@]}")
+done
+
+mkdir -p "$(dirname "$ESTADO")"
+printf '%s\n' "$elegida" > "$ESTADO"
+
+[[ ${1:-} == "--explicar" ]] && echo "wallpaper-transition: $elegida" >&2
+
+"receta_$elegida"
+printf '%s\n' --transition-fps "$FPS"

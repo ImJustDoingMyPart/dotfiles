@@ -1,0 +1,40 @@
+# Atajos propios. `prepend_keymap` se inserta ANTES de los defaults y Yazi corre
+# la primera coincidencia, así que estos pisan al preset.
+# Doc: https://yazi-rs.github.io/docs/configuration/keymap
+
+# Enter = entrar si es carpeta, abrir si es archivo (plugin oficial smart-enter).
+# Sin esto, el preset manda las carpetas al opener `edit` ($EDITOR), que no las abre.
+# Doc: https://github.com/yazi-rs/plugins/tree/main/smart-enter.yazi
+[[mgr.prepend_keymap]]
+on   = "<Enter>"
+run  = "plugin smart-enter"
+desc = "Entrar a la carpeta, o abrir el archivo"
+
+# z y Z invertidos respecto del preset, para que `z` sea zoxide como en Fish.
+[[mgr.prepend_keymap]]
+on   = "z"
+run  = "plugin zoxide"
+desc = "Saltar a una carpeta frecuente (zoxide)"
+
+[[mgr.prepend_keymap]]
+on   = "Z"
+run  = "plugin fzf"
+desc = "Saltar a un archivo o carpeta (fzf)"
+
+# ! = bajar a una shell interactiva en la carpeta actual. Yazi se oculta (--block)
+# y vuelve a mostrarse al hacer `exit`. Receta oficial ("Dropping to the shell").
+# Doc: https://yazi-rs.github.io/docs/tips/#dropping-to-the-shell
+[[mgr.prepend_keymap]]
+on   = "!"
+for  = "unix"
+run  = 'shell "$SHELL" --block'
+desc = "Abrir shell en la carpeta actual"
+
+# y = copiar adentro de Yazi (`yank`) Y ADEMAS al portapapeles de Wayland como
+# text/uri-list, que es lo que Brave/Chromium lee para recibir un archivo de verdad
+# (no su ruta como texto). Receta oficial, variante Wayland.
+# Doc: https://yazi-rs.github.io/docs/tips/#selected-files-to-clipboard
+[[mgr.prepend_keymap]]
+on   = "y"
+run  = [ 'shell -- for path in %s; do echo "file://$path"; done | wl-copy -t text/uri-list', "yank" ]
+desc = "Copiar (adentro de Yazi y al portapapeles del sistema)"

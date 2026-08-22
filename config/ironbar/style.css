@@ -1,0 +1,421 @@
+/* Ironbar 0.19 — hoja de estilo.
+ *
+ * Port del style.css de Waybar (que a su vez venía de nickjj/dotfriedrice). Se conserva
+ * la propiedad que lo hacía valioso: NO HAY UN SOLO HEX ACÁ. Todo sale de los
+ * @define-color de theme.css, que es el symlink que mueve `theme-set`. Por eso la barra
+ * sigue al wallpaper igual que antes.
+ *
+ * OJO: Ironbar hot-loadea ESTE archivo, pero NO el theme.css que importa. Al cambiar de
+ * tema hay que reiniciar el proceso; de eso se encarga `theme-set` (probado el 2026-08-14:
+ * ni el watcher ni `ironbar reload` toman el import).
+ *
+ * ─── Qué cambia respecto de Waybar ───
+ *
+ * Los selectores. Waybar usaba `#workspaces button`, `#cpu`, `window#waybar`; Ironbar
+ * usa `.background` para la ventana, `#bar #start|#center|#end` para las zonas, `.widget`
+ * para cualquier módulo, y el `name` de cada módulo como `#nombre`. Los popups son
+ * `.popup-<nombre>`. Todo verificado contra docs/Styling guide.md del tag v0.19.0.
+ *
+ * OJO con GTK4: Ironbar es GTK4 pero NO usa libadwaita, así que los nombres de rol de
+ * libadwaita (window_bg_color, popover_bg_color…) NO existen acá. Por eso este archivo
+ * usa nombres propios: los siete que el tema ya definía para la barra, más los cuatro que se
+ * agregaron el 2026-08-14 (muted, second, third, elevated) — once en total.
+ */
+
+@import "./theme.css";
+
+* {
+  color: @foreground;
+
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 14px;
+
+  /* Peso normal por defecto, y la negrita SOLO donde significa algo (ver abajo). Se
+   * declara acá explícitamente porque varios widgets de GTK traen negrita de fábrica. */
+  font-weight: normal;
+
+  border: none;
+  border-radius: 0;
+
+  min-height: 0;
+}
+
+/* ── Peso tipográfico ────────────────────────────────────────────────────────
+ *
+ * La negrita marca "dónde estás" y "qué hora es": el workspace y el reloj. Todo lo demás
+ * —fecha, clima, volumen, indicadores de uso, bandeja— es información que se consulta,
+ * no que se busca, y va en peso normal. Sin esta regla la barra mezclaba pesos sin
+ * criterio, que es lo que la hacía ver desprolija. */
+
+.workspaces .item label,
+.workspaces .item .text-icon,
+#clock-time label {
+  font-weight: bold;
+}
+
+/* La ventana de la barra. En Waybar era `window#waybar`. */
+.background {
+  background-color: @background;
+}
+
+/* ── Workspaces ──────────────────────────────────────────────────────────────
+ *
+ * Misma idea que en Waybar: todos los workspaces visibles y atenuados, el activo a
+ * opacidad plena y en color de acento. Cambia solo el selector — allá era
+ * `#workspaces button`, acá es `.workspaces .item`. */
+
+.workspaces .item {
+  padding: 0 7px;
+  margin: 0;
+  min-width: 8px;
+  background: transparent;
+  opacity: 0.45;
+}
+
+/* El color va al LABEL, no al botón. En GTK4 `color` sobre un GtkButton no cascadea al
+ * GtkLabel de adentro, así que la regla sobre `.item` sola pintaba nada: el número se
+ * veía siempre en el color por defecto y solo cambiaba la opacidad. `.text-icon` es el
+ * nombre que Ironbar le da al ícono textual del workspace. */
+.workspaces .item label,
+.workspaces .item .text-icon {
+  color: @foreground;
+}
+
+.workspaces .item.focused,
+.workspaces .item.visible {
+  opacity: 1;
+}
+
+.workspaces .item.focused label,
+.workspaces .item.focused .text-icon,
+.workspaces .item.visible label,
+.workspaces .item.visible .text-icon {
+  color: @accent;
+}
+
+.workspaces .item.urgent {
+  opacity: 1;
+}
+
+.workspaces .item.urgent label,
+.workspaces .item.urgent .text-icon {
+  color: @urgent;
+}
+
+/* ── Espaciado ───────────────────────────────────────────────────────────────
+ *
+ * Una sola distancia entre módulos, igual que en Waybar: 8px por lado. Lo que en Waybar
+ * era una lista larga de ids acá es una sola regla, porque `.widget` los cubre a todos.
+ *
+ * Se mantiene la nota de medición del archivo original: el hueco VISIBLE no es el
+ * margin. Cada glifo Nerd Font trae su propio side bearing dentro del avance, así que
+ * márgenes idénticos dan huecos de 12 a 16px según el módulo. No se compensa glifo por
+ * glifo — sería frágil y se rompería al cambiar cualquier ícono. */
+
+.widget {
+  min-width: 0;
+  margin: 0 8px;
+  padding: 0;
+  background: transparent;
+}
+
+/* Medio hueco contra los filos de la pantalla, como en Waybar. */
+#menu {
+  margin-left: 10px;
+}
+
+#session {
+  margin-right: 10px;
+}
+
+/* ── El centrado del reloj: dos espejos invisibles ───────────────────────────
+ *
+ * La zona `#center` se centra COMO BLOQUE, así que para que el ':' del reloj caiga en el
+ * centro absoluto de la pantalla hace falta que lo que va antes del reloj mida lo mismo
+ * que lo que va después. La zona lleva cinco módulos:
+ *
+ *     [weather-pad] [clock-date] [clock-time] [weather] [date-pad]
+ *      └─ clima + fecha ─┘        el ':'       └─ clima + fecha ─┘
+ *
+ * `weather-pad` corre el MISMO script que `weather` (`weather-forecast --pad` imprime el
+ * mismo texto que `--waybar`) y `date-pad` es un `clock` con el MISMO `format` que
+ * `clock-date`. Los dos lados son los mismos dos anchos en distinto orden: miden igual por
+ * construcción, sin un solo número que mantener. Lo único que los hace invisibles es el
+ * `color: transparent` de acá abajo — siguen ocupando su ancho, que es todo el punto.
+ *
+ * Esto reemplaza (2026-08-16) al viejo `#center-pad`, que calculaba el relleno en píxeles
+ * y lo emitía en espacios duros U+00A0. Fallaba por dos motivos, los dos medidos sobre
+ * captura: Ironbar hace `.trim()` del stdout del módulo `script` y el `trim` de Rust se
+ * come el U+00A0 (o sea que el relleno llegaba vacío), y además la cuenta suponía celdas
+ * de 8px cuando JetBrains Mono avanza 8,4px a 14px. El `margin-left: 34px` que había acá
+ * era ese error convertido en constante, y por eso el ':' se movía cada vez que cambiaba
+ * la descripción del clima. El detalle está en el docstring de `weather-forecast`.
+ *
+ * `#weather` y `#clock-date` NO matchean estas reglas: los selectores de id son exactos. */
+#weather-pad {
+  color: transparent;
+}
+
+#date-pad label {
+  color: transparent;
+}
+
+/* ── Bandeja ─────────────────────────────────────────────────────────────────
+ *
+ * Los íconos son GtkButton y GTK4 les pone su fondo de botón por defecto, así que la
+ * bandeja aparecía sobre un bloque más claro que el resto de la barra — algo que Waybar
+ * no hacía. `.widget` no alcanza: el fondo está en el `.item` de adentro, no en la caja. */
+
+/* La flechita que pliega la bandeja. Ironbar no tiene el `group` con `drawer` de Waybar,
+ * así que el desplegable se arma con una ironvar: este label la alterna con
+ * `ironbar-tray-toggle` y el módulo `tray` la consulta en su `show_if`. La animación de
+ * apertura la pone el propio `transition_type` del tray. */
+#tray-arrow label {
+  color: @muted;
+}
+
+/* ── El min-width que evita que la bandeja pise al volumen (2026-08-20) ──────
+ *
+ * Síntoma: al arrancar la sesión, los íconos de la bandeja se dibujaban ENCIMA del
+ * volumen y del mouse, y el bug aparecía y desaparecía solo. Medido sobre captura: el
+ * `#end` solo crecía 16px al desplegar la bandeja — justo los márgenes de `.widget` —
+ * o sea que la caja del tray reportaba ancho natural CERO.
+ *
+ * Causa, verificada contra GTK 4.22.4 (gtk/gtkwidget.c) e Ironbar 0.19.0:
+ *
+ *   `install_show_if` (src/config/common.rs:435) hace `container.set_visible(false)`
+ *   cuando el módulo está plegado. Y `gtk_widget_queue_resize` arranca con
+ *
+ *       if (gtk_widget_get_resize_queued (widget)) return;      // gtkwidget.c:3724
+ *
+ *   `resize_queued` solo se limpia cuando el widget se ALOCA, y `gtk_widget_needs_allocate`
+ *   (gtkwidget.c:10994) devuelve FALSE para todo lo que cuelga de algo invisible. Entonces
+ *   la primera invalidación deja la bandera pegada en TRUE y todas las siguientes son
+ *   no-ops silenciosos: la medida de la caja queda CONGELADA en el valor que tenía la
+ *   última vez que estuvo visible.
+ *
+ * Al arrancar con la bandeja plegada, esa última vez fue con CERO íconos (los items de
+ * la bandeja llegan por D-Bus ~200ms después, y sus `Picture` nacen vacíos y se llenan
+ * async). De ahí el cero. Y "se arregla solo" cuando algo fuerza una aloca de verdad.
+ *
+ * El arreglo no pelea con GTK: si la medida se va a congelar igual, que se congele en un
+ * valor que ALCANCE. `min-width` participa del natural, así que la caja nunca reporta
+ * menos que esto, tenga o no íconos adentro.
+ *
+ * ESTE NÚMERO ES UNA MEDICIÓN, NO UNA CUENTA — y es un CALCE JUSTO, sin aire de sobra.
+ * 96px es el ancho real de la caja con los 4 íconos de hoy (Steam, Syncthing, OpenRGB,
+ * arch-update), o sea 24px por item. Se midió pintando `#tray { background: #ff0000 }`
+ * con la bandeja desplegada y leyendo la corrida de píxeles rojos: 1479..1574. La primera
+ * versión de esta regla puso 132px "por las dudas" y dejó 36px de hueco muerto entre el
+ * último ícono y el volumen — se veía mal y hubo que rehacerlo.
+ *
+ * CONSECUENCIA: si algún día hay un ícono MÁS en la bandeja, no entra y vuelve a pisar al
+ * volumen. Son +24px por ícono. Volver a medir con el fondo rojo, no estimar.
+ *
+ * OJO: esto depende de que el módulo conserve una transición de deslizamiento
+ * (`slide_end` en config.json). Con `none` o `crossfade`, GtkRevealer devuelve escala 1.0
+ * fija (gtkrevealer.c:181) y estos 96px quedarían reservados TAMBIÉN con la bandeja
+ * plegada. Con `slide_end`, plegada mide `natural × current_pos` = 0 y no ocupa nada. */
+#tray {
+  min-width: 96px;
+}
+
+/* Misma falla, mismo arreglo, en el único otro módulo con `show_if`: `mouse` está oculto
+ * cuando el mouse está apagado, y su texto lo escribe un `script` en modo poll MIENTRAS
+ * está oculto. Al prender el mouse aparecía con el ancho congelado y pisaba a la memoria.
+ * 52px = el ícono más "100%", el texto más ancho que emite `ironbar-mouse`. */
+#mouse {
+  min-width: 52px;
+}
+
+.tray .item {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0 4px;
+  min-height: 0;
+}
+
+.tray .item:hover {
+  background-color: @elevated;
+  border-radius: 4px;
+}
+
+/* ── Estados ─────────────────────────────────────────────────────────────────
+ *
+ * En Waybar los umbrales los aplicaba el propio módulo (`states: {warning, critical}`) y
+ * el CSS solo pintaba la clase. `sys_info` de Ironbar no tiene `states`, así que estas
+ * reglas quedan listas para cuando se agreguen clases por script, pero hoy no se
+ * disparan solas. Es una pérdida real contra Waybar, anotada a propósito. */
+
+#cpu.warning label,
+#memory.warning label,
+#gpu.warning,
+#mouse.warning {
+  color: @warning;
+}
+
+#cpu.critical label,
+#memory.critical label,
+#gpu.critical,
+#mouse.critical {
+  color: @urgent;
+}
+
+.volume.muted {
+  opacity: 0.5;
+}
+
+/* ── Jerarquía de color ──────────────────────────────────────────────────────
+ *
+ * Waybar pintaba TODO de @foreground y usaba @accent solo en el workspace activo: del
+ * esquema de matugen se aprovechaban tres colores de once. Acá cada FAMILIA de módulos
+ * tiene su tono, así que la barra se lee por zonas sin necesidad de separadores:
+ *
+ *   accent (primary)          -> el foco: hora, workspace activo, logo del menú
+ *   muted  (on_surface_variant) -> fecha y flecha de la bandeja: están, sin competir
+ *   third  (tertiary)         -> lecturas del entorno: volumen y clima
+ *   second (secondary)        -> los indicadores de sistema: memoria, CPU, GPU, mouse
+ *   urgent (error)            -> apagar, la única acción destructiva de la barra
+ *   foreground                -> notificaciones y los workspaces inactivos
+ *
+ * Los tres acentos (primary, secondary, tertiary) salen del MISMO esquema Material You que
+ * genera matugen a partir del wallpaper, así que son armónicos entre sí por construcción,
+ * no por elección manual.
+ *
+ * Va sobre `label` y no sobre el módulo: en GTK4 `color` sobre un GtkButton no cascadea
+ * al GtkLabel de adentro (es el mismo motivo por el que los workspaces no se pintaban). */
+
+#clock-time label,
+#menu label {
+  color: @accent;
+}
+
+/* Fecha en atenuado: es el vecino directo de la hora y con un tono fuerte le competía. */
+#clock-date label {
+  color: @muted;
+}
+
+/* Lecturas del entorno: qué tiempo hace y a qué volumen suena. */
+#volume label {
+  color: @third;
+}
+
+/* Los módulos `script` (clima, gpu, notificaciones) SE APUNTAN DIRECTO, sin ` label`.
+ * A diferencia de `volume` o `workspaces` —que son un botón con un label adentro— el
+ * script module ES el label, así que `#nombre label` no matchea nada y el módulo se
+ * quedaba en @foreground. Es lo que pasaba con el clima, que no tomaba color. */
+#weather {
+  color: @third;
+}
+
+/* Los indicadores de sistema son UN grupo, así que comparten tono a propósito. */
+#memory label,
+#cpu label,
+#gpu,
+#mouse {
+  color: @second;
+}
+
+#session label {
+  color: @urgent;
+}
+
+#notifications {
+  color: @foreground;
+}
+
+/* ── Popups ──────────────────────────────────────────────────────────────────
+ *
+ * Esto es lo que Waybar no tenía. Se los trata como la familia "Controles" del plan:
+ * mismo fondo, mismo borde y el radio 4 que es la constante del escritorio (niri,
+ * walker, mako, el input-field de hyprlock). Los colores son los del tooltip, que ya
+ * eran los de una superficie flotante sobre la barra. */
+
+.popup {
+  background-color: @tooltip;
+  border: 1px solid @tooltip-border;
+  border-radius: 4px;
+  padding: 10px;
+}
+
+/* El popup de `volume` trae `.device-box` para el dispositivo y `.apps-box` para el
+ * volumen por app — que es la razón principal por la que se migró a Ironbar.
+ *
+ * Los sliders NECESITAN ancho explícito: Ironbar no les da tamaño y GTK los colapsa a un
+ * cuadradito de unos pocos píxeles, con lo que el control queda inusable. Los 220px son
+ * lo que hace que el popup mida parecido al de walker. */
+
+.popup-volume {
+  min-width: 260px;
+}
+
+.popup-volume .device-box,
+.popup-volume .apps-box {
+  padding: 4px;
+}
+
+/* OJO: hay que dimensionar el `scale`, no el `.slider` que documenta Ironbar. En GTK4
+ * `slider` es el nombre del NODO DEL POMO dentro de la escala, así que darle min-width
+ * a `.slider` agranda el pomo y deja la barra en cero — que es exactamente el cuadradito
+ * que aparecía. La escala se estira desde el elemento `scale`, y el riel desde `trough`. */
+.popup-volume scale {
+  min-width: 220px;
+  margin: 4px 0;
+}
+
+.popup-volume scale trough {
+  min-height: 6px;
+  border-radius: 4px;
+  background-color: @background;
+}
+
+.popup-volume scale highlight {
+  border-radius: 4px;
+  background-color: @accent;
+}
+
+.popup-volume scale slider {
+  min-width: 14px;
+  min-height: 14px;
+  border-radius: 8px;
+  background-color: @foreground;
+}
+
+.popup-volume .apps-box .app-box {
+  padding: 6px 0;
+}
+
+/* El nombre de la aplicación arriba de su slider. */
+.popup-volume .apps-box .app-box label {
+  margin-bottom: 2px;
+}
+
+/* Mute y selector de dispositivo: alto usable, sin el look de botón de GTK por defecto. */
+.popup-volume .device-box .btn-mute,
+.popup-volume .apps-box .app-box .btn-mute,
+.popup-volume .device-box .device-selector {
+  min-height: 24px;
+  background-color: @background;
+  border: 1px solid @tooltip-border;
+  border-radius: 4px;
+}
+
+/* El popup de música: la carátula con el mismo radio que el resto. */
+.popup-music .album-art {
+  border-radius: 4px;
+}
+
+/* ── Tooltips ────────────────────────────────────────────────────────────── */
+
+tooltip {
+  background-color: @tooltip;
+  border: 1px solid @tooltip-border;
+  border-radius: 4px;
+}
+
+tooltip * {
+  padding: 2px;
+  color: @foreground;
+}
+

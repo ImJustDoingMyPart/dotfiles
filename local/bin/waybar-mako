@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Módulo de notificaciones de Waybar, para mako.
+#
+# swaync traía `swaync-client -swb`, un modo pensado para esto que emite JSON en streaming.
+# mako no tiene equivalente, así que el estado se arma acá y waybar lo consulta por
+# intervalo.
+#
+# Salida JSON: text (el ícono), tooltip, class (para el CSS).
+#
+# Estados:
+#   dnd            modo do-not-disturb activo
+#   notification   hay notificaciones en el historial
+#   none           nada
+
+set -euo pipefail
+
+# `makoctl mode` imprime un modo por línea; do-not-disturb aparece cuando está activo.
+if makoctl mode 2>/dev/null | grep -qx "do-not-disturb"; then
+  dnd=1
+else
+  dnd=0
+fi
+
+# -j da JSON (documentado en `man 1 makoctl`). Sin mako corriendo esto falla, y el
+# módulo tiene que degradar en silencio en vez de romper la barra.
+count=$(makoctl history -j 2>/dev/null | python3 -c 'import sys,json
+try: print(len(json.load(sys.stdin)))
+except Exception: print(0)' 2>/dev/null || echo 0)
+
+if (( dnd )); then
+  icon="󰂛"          # campana tachada
+  class="dnd"
+  tip="No molestar activado"
+elif (( count > 0 )); then
+  icon="󱅫"          # campana con punto
+  class="notification"
+  tip="$count en el historial"
+else
+  icon="󰂜"          # campana vacía
+  class="none"
+  tip="Sin notificaciones"
+fi
+
+printf '{"text":"%s","class":"%s","tooltip":"%s"}\n' "$icon" "$class" "$tip"

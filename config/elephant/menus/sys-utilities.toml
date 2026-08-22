@@ -1,0 +1,47 @@
+# Categoría del índice de `Mod+,`. Generada al agrupar la lista plana de 16 entradas
+# (2026-08-06), que en orden arbitrario era difícil de recorrer.
+#
+# `parent = "system"` es lo que hace que la flecha IZQUIERDA vuelva al índice. No se hereda:
+# cada menú tiene que declararlo. Los menús HOJA que se abren desde acá declaran a su vez
+# `parent = "sys-utilities"`, para que el atrás los devuelva a esta categoría y no al índice.
+#
+# `fixed_order = true` es obligatorio: sin eso elephant reordena por score y el orden
+# alfabético se pierde. Ya pasó con la agenda.
+
+name = "sys-utilities"
+name_pretty = "Utilidades"
+description = "agenda · clima · notificaciones · texto"
+icon = "accessories-text-editor"
+parent = "system"
+fixed_order = true
+
+[[entries]]
+text = "Agenda"
+subtext = "próximos eventos de Google Calendar"
+keywords = ["agenda", "calendario", "calendar", "eventos", "google"]
+icon = "office-calendar"
+submenu = "calendar"
+[[entries]]
+text = "Caracteres Unicode"
+subtext = "buscar y copiar un carácter"
+keywords = ["unicode", "caracter", "simbolo", "char"]
+icon = "accessories-character-map"
+actions = { "abrir" = "sh -c 'sleep 0.2; walker --provider unicode'" }
+[[entries]]
+text = "Clima"
+subtext = "pronóstico de la semana"
+keywords = ["clima", "tiempo", "pronostico", "weather", "lluvia", "temperatura"]
+icon = "weather-clear"
+submenu = "weather"
+[[entries]]
+text = "Notificaciones"
+subtext = "historial de notificaciones descartadas"
+keywords = ["notificacion", "notification", "historial", "mako"]
+icon = "preferences-system-notifications"
+submenu = "notifications"
+[[entries]]
+text = "Snippets"
+subtext = "fragmentos de texto para tipear"
+keywords = ["snippet", "texto", "fragmento", "plantilla"]
+icon = "accessories-text-editor"
+actions = { "abrir" = "sh -c 'sleep 0.2; walker --provider snippets'" }

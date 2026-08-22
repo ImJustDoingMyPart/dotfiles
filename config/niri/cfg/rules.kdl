@@ -1,0 +1,168 @@
+    window-rule {
+        geometry-corner-radius 4 // Set every window radius to 10
+        clip-to-geometry true
+    }
+
+     // if you use steam you will probably like these
+//    window-rule {
+//        match app-id="steam"
+//        exclude title=r#"^[Ss]team$"#
+//        open-floating true
+//    }
+
+    window-rule {
+       match app-id="steam" title=r#"^notificationtoasts_\d+_desktop$"#
+       default-floating-position x=10 y=10 relative-to="bottom-right"
+       open-focused false
+    }
+
+    // ─── Wallpaper blureado detrás del overview ───
+    //
+    // OJO CON EL MATCH: la regla apunta al namespace del daemon SECUNDARIO y a ningún
+    // otro. `place-within-backdrop true` MUEVE la superficie al backdrop, no la duplica:
+    // aplicada a la capa del escritorio deja el escritorio SIN FONDO, con el wallpaper
+    // visible solo al abrir el overview. Pasó el 2026-08-04 y por eso la regla no existió
+    // hasta ahora. `^awww-daemon` a secas matchea las DOS capas — tiene que ir anclado.
+    //
+    // Con Noctalia esto salía gratis porque publicaba dos capas: "noctalia-wallpaper" para
+    // el escritorio y "noctalia-backdrop", una copia aparte ya blureada. awww publica una
+    // sola, así que la arquitectura de dos capas se replica a mano: un segundo daemon
+    // (~/.config/systemd/user/awww-backdrop.service) con `--namespace -backdrop`, que
+    // levanta su propio socket y su propia capa llamada "awww-daemon-backdrop"
+    // (verificado con `niri msg layers`). `wallpaper-set` le manda la MISMA imagen a los
+    // dos con `awww img -a`, así no se pueden desincronizar.
+    //
+    // EL BLUR NO LO PONE NIRI ACÁ. Se probó `background-effect { blur true }` sobre esta
+    // misma regla: valida, carga, y el fondo del overview sale IGUAL DE NÍTIDO (comparado
+    // sobre captura el 2026-08-05). El motivo es que `background-effect` desenfoca lo que
+    // está DETRÁS de una superficie translúcida — es lo que hace en las window-rule de más
+    // abajo — y no el contenido de la superficie misma. Una capa de wallpaper es opaca y
+    // no tiene nada detrás, así que no hay nada que desenfocar.
+    //
+    // El blur va HORNEADO en la imagen: `wallpaper-set` genera una copia desenfocada y
+    // oscurecida en ~/.local/state/wallpaper-backdrop.png y se la manda solo a este
+    // daemon. Es exactamente lo que hacía Noctalia con su "noctalia-backdrop".
+    //
+    // Costo medido (2026-08-05): el segundo daemon son 26,4 MiB de RSS, prácticamente lo
+    // mismo que el principal (26,3 MiB) — la imagen descomprimida pesa lo mismo aunque
+    // esté desenfocada. Recién cargado, antes de recibir la primera imagen, son 10 MiB;
+    // esa es la cifra que NO hay que citar. Generar la copia desenfocada tarda ~0,36 s por
+    // cambio de fondo, sobre los ~0,9 s que ya tardaba `wallpaper-set` con matugen.
+    // Doc: https://github.com/YaLTeR/niri/wiki/Configuration:-Layer-Rules
+    layer-rule {
+        match namespace="^awww-daemon-backdrop$"
+        place-within-backdrop true
+    }
+
+    // La capa del escritorio ("awww-daemon" a secas) queda A PROPÓSITO sin regla.
+
+    // ─── Wallpaper Engine (wallpaperengine-on) ───
+    //
+    // A diferencia de awww, acá la capa de ESCRITORIO sí lleva `place-within-backdrop`.
+    // Es la recomendación del propio proyecto para niri (--layer background + esta regla):
+    // sin ella, la escena animada se clona en cada miniatura del Overview — carísimo para
+    // un render en vivo, al revés que con una textura estática. El namespace lo fija el
+    // binario mismo ("linux-wallpaperengine", ver WaylandOutputViewport.cpp).
+    // Doc: https://github.com/Almamu/linux-wallpaperengine#-usage (flag --layer)
+    layer-rule {
+        match namespace="linux-wallpaperengine"
+        place-within-backdrop true
+    }
+
+    // Juegos a pantalla completa
+    window-rule {
+        match app-id=r#"^steam_app_\d+$"#
+        match app-id="gamescope"
+        open-fullscreen true
+    }
+
+    // VRR (FreeSync) para juegos: DP-3 tiene variable-refresh-rate on-demand=true,
+    // así que se activa solo cuando hay una ventana de juego y queda apagado en el escritorio.
+    window-rule {
+        match app-id="cs2"
+        match app-id=r#"^steam_app_\d+$"#
+        match app-id="gamescope"
+        variable-refresh-rate true
+    }
+
+    // Ventanas SIN app-id. Gamescope lanzado desde Steam las reporta así (verificado:
+    // 819 muestras con app_id nulo en la sesión de Wukong del 2026-08-04), con lo cual
+    // la regla de arriba nunca le aplicaba y los juegos corrían sin FreeSync.
+    // Truco: una regla sin `match` aplica a todo, y `exclude app-id=".+"` saca a toda
+    // ventana que SÍ tenga app-id — queda seleccionando exactamente las que no tienen.
+    // Verificado en el fuente de niri (src/window/mod.rs): con matcher de app-id y
+    // `role.app_id == None` el match devuelve false, y la exclusión no dispara.
+    window-rule {
+        exclude app-id=r#".+"#
+        variable-refresh-rate true
+    }
+
+    // Regla general de transparencia
+    window-rule {
+        // Solo ventanas que TIENEN app-id: las que no tienen (gamescope bajo Steam)
+        // no podían ser excluidas por app-id y se comían opacity + blur estando a
+        // pantalla completa, lo que además le impide a niri hacer direct scanout.
+        match app-id=r#".+"#
+
+        // Excluimos todos los juegos de Steam y Gamescope
+        exclude app-id=r#"^steam_app_.*$"#
+        exclude app-id="gamescope"
+        // Apps con transparencia propia (evitar doble capa)
+        exclude app-id="kitty"
+        exclude app-id="yazi" // kitty lanzado con --class yazi (Mod+E)
+
+        draw-border-with-background false
+
+        opacity 0.95
+
+        // SIN `xray false`: xray se activa solo cuando hay algún background effect, y es el
+        // camino barato. Con xray niri blurea el fondo UNA vez y reusa esa versión para todas
+        // las ventanas ("no extra work", el wallpaper casi nunca cambia). Con `xray false`
+        // recalcula el blur de CADA ventana cada vez que la movés o cambia lo que hay debajo,
+        // y encima el modo no-xray es experimental: desaparece durante las animaciones de
+        // apertura/cierre y mientras arrastrás una ventana tileada.
+        //   https://github.com/YaLTeR/niri/wiki/Window-Effects  (sección Xray, niri 26.04)
+        // La propia doc pone `xray false` solo en `match is-floating=true`, nunca en la regla
+        // general. Si alguna vez querés el blur "de verdad", va en una regla aparte para
+        // flotantes, no acá.
+        background-effect {
+            blur true
+        }
+    }
+
+    // Walker (y los menúes de elephant que corren dentro del mismo proceso: `menus:system`,
+    // `menus:wallpapers`, etc.) es una capa layer-shell, no una ventana normal — el
+    // `window-rule` de arriba no le aplica. Mismo namespace para todos los providers y
+    // menús: verificado con `niri msg layers` mientras estaba abierto ("walker" a secas).
+    // Mismos valores que la regla general de ventanas (opacity 0.95 + blur), para que el
+    // launcher se lea como parte del mismo sistema visual.
+    //
+    // `xray false` es obligatorio acá y NO en la regla general de ventanas. Sin él (probado
+    // en pantalla el 2026-08-20) walker queda en la capa "overlay", y el default `xray true`
+    // reusa el blur BARATO calculado una sola vez sobre el wallpaper — walker se ve flotando
+    // sobre el fondo de escritorio y las ventanas abiertas detrás desaparecen del blur. Con
+    // `xray false` niri recalcula el blur del contenido real de debajo, que es lo que hace
+    // que las ventanas se seteen visibles (desenfocadas) detrás del launcher. Coincide con el
+    // ejemplo de la doc: "Make top and overlay layers use the regular blur, while bottom and
+    // background layers keep using the efficient xray blur."
+    // Doc: https://github.com/YaLTeR/niri/wiki/Configuration:-Layer-Rules (niri 26.04)
+    layer-rule {
+        match namespace="^walker$"
+
+        opacity 0.95
+        background-effect {
+            blur true
+            xray false
+        }
+    }
+
+    // Apps excluidas de la regla general: restaurar borde sin fondo sólido y aplicar solo blur
+    window-rule {
+        match app-id="kitty"
+        match app-id="yazi"
+        draw-border-with-background false
+
+        background-effect {
+            blur true
+        }
+    }

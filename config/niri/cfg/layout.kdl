@@ -1,0 +1,31 @@
+    layout {
+        gaps 16 // Gap between windows
+        center-focused-column "never" // Don’t auto-center focused column
+
+        // Geometría del anillo/borde/sombra. Vive acá (estático) y NO en el template de
+        // Noctalia: el builtin solo escribe COLORES, y niri mergea campo por campo entre
+        // includes, así que estos valores sobreviven aunque noctalia.kdl venga después.
+        // `off` es la forma documentada de desactivar el borde (la wiki no menciona width 0).
+        focus-ring {
+            width 2
+        }
+
+        border {
+            off
+        }
+
+        shadow {
+            on
+            softness 30
+            spread 3
+            offset x=0 y=5
+        }
+
+        preset-column-widths {
+            proportion 0.33333
+            proportion 0.5
+            proportion 0.66667
+        }
+
+        struts {}
+    }

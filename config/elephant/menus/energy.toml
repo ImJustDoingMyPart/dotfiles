@@ -1,0 +1,35 @@
+# Perfiles de energía (power-profiles-daemon, activo en esta máquina).
+# Los tres perfiles salen de `powerprofilesctl list`: no se inventan, son los que
+# expone el daemon en este hardware (amd_pstate).
+
+name = "energy"
+name_pretty = "Energy"
+description = "System power profile"
+icon = "cs-power"
+fixed_order = true
+
+# `parent` es lo que hace aparecer el hint `back` abajo en walker y lo que hace que Escape
+# vuelva al índice en vez de cerrar el launcher. NO es decorativo y NO se hereda: cada menú
+# que se llegue desde `menus:system` tiene que declararlo. Ver system.toml.
+parent = "sys-system"
+
+[[entries]]
+text = "Performance"
+subtext = "performance"
+keywords = ["performance", "rendimiento", "juegos", "gaming"]
+icon = "cs-power"
+actions = { "set" = "powerprofilesctl set performance" }
+
+[[entries]]
+text = "Balanced"
+subtext = "balanced"
+keywords = ["balanced", "balanceado", "normal"]
+icon = "cs-power"
+actions = { "set" = "powerprofilesctl set balanced" }
+
+[[entries]]
+text = "Power saver"
+subtext = "power-saver"
+keywords = ["power-saver", "ahorro", "bateria", "cs-power", "save"]
+icon = "cs-power"
+actions = { "set" = "powerprofilesctl set power-saver" }

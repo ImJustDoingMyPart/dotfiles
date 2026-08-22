@@ -1,0 +1,76 @@
+// Template de matugen -> ~/.config/themes/matugen/niri.kdl
+//
+// Reemplaza a los DOS archivos que generaba Noctalia: noctalia.kdl (template builtin) y
+// noctalia-gradient.kdl (user template). Se unifican en uno solo porque acá no hay un
+// builtin al que haya que parchearle encima: se escribe todo de una.
+//
+// Solo COLOR. La geometría (width, off, softness/spread/offset) sigue viviendo en
+// cfg/layout.kdl y no se toca desde acá.
+//
+// Los includes de niri son posicionales y mergean campo por campo, así que este archivo
+// pisa únicamente las claves de color que declara.
+//
+// OJO: el motor de matugen no distingue comentarios. Un placeholder de ejemplo escrito
+// dentro de un comentario se intenta renderizar igual y aborta el archivo entero en
+// silencio — por eso acá no hay ni un ejemplo entre comillas.
+
+layout {
+
+    focus-ring {
+        // El gradiente tiene precedencia sobre active-color, pero se dejan los dos: si
+        // alguna vez se saca el gradiente, el color plano queda de respaldo.
+        active-gradient from="{{colors.primary.default.hex}}" to="{{colors.tertiary.default.hex}}" angle=45 relative-to="window"
+        active-color   "{{colors.primary.default.hex}}"
+        inactive-color "{{colors.surface_container_lowest.default.hex}}"
+        urgent-color   "{{colors.error.default.hex}}"
+    }
+
+    border {
+        active-color   "{{colors.primary.default.hex}}"
+        inactive-color "{{colors.surface_container_lowest.default.hex}}"
+        urgent-color   "{{colors.error.default.hex}}"
+    }
+
+    // El rol "shadow" de Material 3 rinde negro puro, así que el valor literal es
+    // equivalente y además deja explícita la opacidad.
+    shadow {
+        color "#00000070"
+    }
+
+    tab-indicator {
+        active-color   "{{colors.primary.default.hex}}"
+        inactive-color "{{colors.surface_container.default.hex}}"
+        urgent-color   "{{colors.error.default.hex}}"
+    }
+
+    insert-hint {
+        color "{{colors.primary.default.hex}}80"
+    }
+}
+
+recent-windows {
+    highlight {
+        active-color "{{colors.primary.default.hex}}"
+        urgent-color "{{colors.error.default.hex}}"
+    }
+}
+
+// Fondo del overview. Tomado de la idea del niri.kdl de dotfriedrice, que el template de
+// Noctalia no cubría. Importa más ahora: el backdrop del overview pasó a ser el wallpaper
+// plano de awww (sin el blur+tint que renderizaba Noctalia), así que conviene que el color
+// de atrás acompañe al tema.
+overview {
+    backdrop-color "{{colors.surface_container_lowest.default.hex}}"
+}
+
+// Borde distinto cuando la ventana se está capturando (screenshare o grabación).
+// Copiado de dotfriedrice. Es un aviso visual barato y concreto: con gpu-screen-recorder
+// y el portal de screenshare en uso, saber de un vistazo qué ventana está saliendo al
+// aire evita el accidente clásico.
+window-rule {
+    match is-window-cast-target=true
+
+    focus-ring {
+        active-gradient from="{{colors.error.default.hex}}" to="{{colors.tertiary.default.hex}}" angle=45 relative-to="window"
+    }
+}

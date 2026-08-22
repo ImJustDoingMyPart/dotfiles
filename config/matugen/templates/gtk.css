@@ -1,0 +1,91 @@
+/* Template de matugen -> ~/.config/themes/matugen/gtk.css
+ *
+ * Un solo archivo para GTK3 y GTK4: `theme-set` lo symlinkea en los dos lados
+ * (~/.config/gtk-3.0/theme.css y ~/.config/gtk-4.0/theme.css), y el gtk.css de cada
+ * versión lo importa. Reemplaza a los templates builtin gtk3/gtk4 de Noctalia.
+ *
+ * Sin placeholders dentro de comentarios.
+ */
+
+@define-color theme_bg_color {{colors.surface.default.hex}};
+@define-color theme_fg_color {{colors.on_surface.default.hex}};
+@define-color theme_base_color {{colors.surface_container_lowest.default.hex}};
+@define-color theme_text_color {{colors.on_surface.default.hex}};
+@define-color theme_selected_bg_color {{colors.primary.default.hex}};
+@define-color theme_selected_fg_color {{colors.on_primary.default.hex}};
+
+@define-color insensitive_bg_color {{colors.surface_container.default.hex}};
+@define-color insensitive_fg_color {{colors.outline.default.hex}};
+@define-color insensitive_base_color {{colors.surface_container_low.default.hex}};
+
+@define-color borders {{colors.outline_variant.default.hex}};
+@define-color unfocused_borders {{colors.outline_variant.default.hex}};
+
+@define-color warning_color {{colors.tertiary.default.hex}};
+@define-color error_color {{colors.error.default.hex}};
+@define-color success_color {{colors.primary.default.hex}};
+
+/* Nombres de libadwaita (GTK4). Los usa cualquier app moderna de GNOME. */
+@define-color window_bg_color {{colors.surface.default.hex}};
+@define-color window_fg_color {{colors.on_surface.default.hex}};
+@define-color view_bg_color {{colors.surface_container_lowest.default.hex}};
+@define-color view_fg_color {{colors.on_surface.default.hex}};
+@define-color headerbar_bg_color {{colors.surface_container.default.hex}};
+@define-color headerbar_fg_color {{colors.on_surface.default.hex}};
+@define-color card_bg_color {{colors.surface_container_low.default.hex}};
+@define-color card_fg_color {{colors.on_surface.default.hex}};
+@define-color popover_bg_color {{colors.surface_container.default.hex}};
+@define-color popover_fg_color {{colors.on_surface.default.hex}};
+@define-color sidebar_bg_color {{colors.surface_container_low.default.hex}};
+@define-color sidebar_fg_color {{colors.on_surface.default.hex}};
+@define-color accent_bg_color {{colors.primary.default.hex}};
+@define-color accent_fg_color {{colors.on_primary.default.hex}};
+@define-color accent_color {{colors.primary.default.hex}};
+@define-color destructive_bg_color {{colors.error.default.hex}};
+@define-color destructive_fg_color {{colors.on_error.default.hex}};
+
+/* Colores de estado ":backdrop" (ventana sin foco) y variantes secundarias de
+ * libadwaita >= 1.4. Verificados contra la doc oficial 1.9:
+ * https://gnome.pages.gitlab.gnome.org/libadwaita/doc/1.9/css-variables.html
+ *
+ * Sin estos, GTK no puede resolver la @color referenciada por la regla ":backdrop"
+ * de la sidebar/headerbar y el fondo cae a blanco — el bug de la sidebar de Nautilus
+ * en blanco al desenfocar (2026-08-19).
+ *
+ * headerbar_backdrop_color: la doc dice que por default es alias de window_bg_color.
+ * secondary_sidebar_*: no hay un tercer tono "más apagado" definido en este template
+ * (solo container/container_low/container_lowest), así que se reusa view_bg_color
+ * (container_lowest) y window_bg_color, que es la relación relativa que muestra la
+ * paleta default de Adwaita (secondary_sidebar entre view y sidebar).
+ * *_shade_color, *_border_color, headerbar_border_color, scrollbar_outline_color:
+ * la doc pide "negro parcialmente transparente" fijo, no derivado del wallpaper —
+ * son valores default dark de la doc, no inventados.
+ */
+@define-color headerbar_backdrop_color @window_bg_color;
+@define-color headerbar_border_color @headerbar_fg_color;
+@define-color headerbar_shade_color rgba(0, 0, 6, 0.36);
+@define-color headerbar_darker_shade_color rgba(0, 0, 6, 0.9);
+
+@define-color sidebar_backdrop_color {{colors.surface_container_lowest.default.hex}};
+@define-color sidebar_shade_color rgba(0, 0, 6, 0.25);
+@define-color sidebar_border_color rgba(0, 0, 6, 0.36);
+
+@define-color secondary_sidebar_bg_color @view_bg_color;
+@define-color secondary_sidebar_fg_color @view_fg_color;
+@define-color secondary_sidebar_backdrop_color @window_bg_color;
+@define-color secondary_sidebar_shade_color rgba(0, 0, 6, 0.25);
+@define-color secondary_sidebar_border_color rgba(0, 0, 6, 0.36);
+
+@define-color card_shade_color rgba(0, 0, 6, 0.36);
+
+@define-color dialog_bg_color @popover_bg_color;
+@define-color dialog_fg_color @popover_fg_color;
+@define-color popover_shade_color rgba(0, 0, 6, 0.25);
+
+@define-color thumbnail_bg_color @popover_bg_color;
+@define-color thumbnail_fg_color @popover_fg_color;
+@define-color overview_bg_color @secondary_sidebar_bg_color;
+@define-color overview_fg_color @secondary_sidebar_fg_color;
+
+@define-color shade_color rgba(0, 0, 6, 0.25);
+@define-color scrollbar_outline_color rgba(0, 0, 6, 0.5);

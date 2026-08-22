@@ -1,0 +1,16 @@
+# Config global de elephant (el resto de los .toml de esta carpeta son por provider).
+#
+# Creado el 2026-08-07, en la migración de Alacritty a kitty, con una sola clave. Todo lo
+# demás queda en el default documentado.
+#
+# ⚠ Igual que el resto de la carpeta: NO CORRER `elephant generate config`, que reescribe
+# todos estos archivos y borra los comentarios (pasó el 2026-08-05).
+#
+# terminal_cmd: qué terminal usa la acción "run in terminal" de walker (shift+Return) y
+# las apps con `Terminal=true` en su .desktop. El default es `<autodetect>`, que recorre
+# una lista interna donde están tanto kitty como alacritty; mientras los dos paquetes
+# convivan, cuál gana no es predecible. Se fija a mano para que no dependa de eso.
+#
+# El nombre y el default de la clave salen de la doc que genera el propio binario 2.22.0:
+# `elephant generate doc` → sección "Elephant Configuration / ElephantConfig".
+terminal_cmd = "kitty"

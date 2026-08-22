@@ -1,0 +1,9 @@
+# Ubicación del pronóstico de `weather-forecast`.
+# Una línea: <latitud> <longitud> <nombre a mostrar>
+#
+# Las coordenadas se resuelven UNA vez y quedan acá; no hay geolocalización por IP
+# (ni consulta al geocoder en cada refresco). Para cambiar de ciudad:
+#   curl -s "https://geocoding-api.open-meteo.com/v1/search?name=Rosario&country=AR&language=es"
+#
+# Copiar este archivo a ~/.config/weather-location con tus propias coordenadas.
+-34.6037 -58.3816 Buenos Aires

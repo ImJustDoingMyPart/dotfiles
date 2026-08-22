@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""Lista los próximos eventos del calendario de Google, en TSV.
+
+Lee la URL secreta en formato iCal que Google publica por calendario. Se eligió esa vía
+sobre gcalcli o khal+vdirsyncer porque no necesita OAuth, ni contraseña de aplicación, ni
+paquetes nuevos: solo una URL. Es de solo lectura, que para mirar la agenda alcanza.
+
+La URL es una CREDENCIAL —quien la tenga lee el calendario entero— así que vive en un
+archivo aparte con permisos 600 y nunca se escribe en la config ni en el menú.
+
+    ~/.config/calendar-ics-url     una URL por línea (se admite más de un calendario)
+
+Salida: una línea por evento, campos separados por tabulación:
+
+    cuando_iso <TAB> etiqueta_relativa <TAB> resumen <TAB> lugar
+
+Se cachea la descarga para no salir a la red cada vez que se abre el menú, que es varias
+veces por día y con la red de por medio se sentiría lento.
+"""
+
+import os
+import pathlib
+import subprocess
+import sys
+import time
+from datetime import date, datetime, timedelta, timezone
+
+CONFIG = pathlib.Path.home() / ".config" / "calendar-ics-url"
+CACHE = pathlib.Path.home() / ".cache" / "calendar-ics"
+CACHE_TTL = 15 * 60          # segundos
+DIAS_ADELANTE = 30
+MAX_EVENTOS = 25
+
+
+def descargar(url: str, destino: pathlib.Path) -> str:
+    """Devuelve el .ics, del cache si está fresco."""
+    if destino.is_file() and time.time() - destino.stat().st_mtime < CACHE_TTL:
+        return destino.read_text(encoding="utf-8", errors="replace")
+
+    try:
+        # --max-time evita que el menú quede colgado si la red no responde: es preferible
+        # mostrar el cache viejo (o nada) antes que trabar el launcher.
+        out = subprocess.run(
+            ["curl", "-fsSL", "--max-time", "8", url],
+            capture_output=True, text=True, timeout=12,
+        )
+        if out.returncode == 0 and out.stdout:
+            destino.parent.mkdir(parents=True, exist_ok=True)
+            destino.write_text(out.stdout, encoding="utf-8")
+            return out.stdout
+    except Exception:
+        pass
+
+    # Si falló la descarga pero hay cache viejo, sirve: una agenda de hace una hora es
+    # infinitamente más útil que una lista vacía.
+    if destino.is_file():
+        return destino.read_text(encoding="utf-8", errors="replace")
+    return ""
+
+
+def desplegar(texto: str):
+    """Deshace el 'folding' del RFC 5545: una línea que empieza con espacio continúa la anterior."""
+    salida = []
+    for linea in texto.splitlines():
+        if linea[:1] in (" ", "\t") and salida:
+            salida[-1] += linea[1:]
+        else:
+            salida.append(linea)
+    return salida
+
+
+def parse_dt(valor: str, params: str):
+    """Convierte DTSTART a datetime o date. Devuelve (valor, es_dia_entero)."""
+    valor = valor.strip()
+    if "VALUE=DATE" in params and "DATE-TIME" not in params:
+        return date(int(valor[0:4]), int(valor[4:6]), int(valor[6:8])), True
+    try:
+        if valor.endswith("Z"):
+            dt = datetime.strptime(valor, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        else:
+            dt = datetime.strptime(valor[:15], "%Y%m%dT%H%M%S")
+            tz = None
+            if "TZID=" in params:
+                nombre = params.split("TZID=")[1].split(";")[0].split(":")[0]
+                try:
+                    from zoneinfo import ZoneInfo
+                    tz = ZoneInfo(nombre)
+                except Exception:
+                    tz = None
+            dt = dt.replace(tzinfo=tz or datetime.now().astimezone().tzinfo)
+        return dt, False
+    except Exception:
+        return None, False
+
+
+def eventos_de(ics: str, desde, hasta):
+    """Extrae VEVENTs, expandiendo los recurrentes con dateutil."""
+    from dateutil.rrule import rrulestr
+
+    encontrados = []
+    actual = None
+
+    for linea in desplegar(ics):
+        if linea.startswith("BEGIN:VEVENT"):
+            actual = {}
+            continue
+        if linea.startswith("END:VEVENT"):
+            if actual and actual.get("inicio") is not None:
+                encontrados.append(actual)
+            actual = None
+            continue
+        if actual is None or ":" not in linea:
+            continue
+
+        cabecera, _, valor = linea.partition(":")
+        nombre = cabecera.split(";")[0].upper()
+        params = cabecera
+
+        if nombre == "DTSTART":
+            actual["inicio"], actual["dia_entero"] = parse_dt(valor, params)
+        elif nombre == "SUMMARY":
+            actual["resumen"] = valor.replace("\\,", ",").replace("\\n", " ").strip()
+        elif nombre == "LOCATION":
+            actual["lugar"] = valor.replace("\\,", ",").replace("\\n", " ").strip()
+        elif nombre == "RRULE":
+            actual["rrule"] = valor.strip()
+
+    salidas = []
+    for ev in encontrados:
+        inicio = ev["inicio"]
+        base = inicio if isinstance(inicio, datetime) else datetime(
+            inicio.year, inicio.month, inicio.day, tzinfo=desde.tzinfo)
+
+        ocurrencias = [base]
+        if ev.get("rrule"):
+            # Los recurrentes son la razón de usar dateutil: sin expandirlos, un
+            # cumpleaños cargado en 2019 nunca aparecería.
+            #
+            # El dtstart va CON zona horaria (no `.replace(tzinfo=None)`): el RFC pide que
+            # el UNTIL de la RRULE venga en UTC cuando el DTSTART tiene TZID, y así es como
+            # los escribe Google. Quitarle la zona al dtstart rompe esa correspondencia y
+            # las ocurrencias salen corridas.
+            try:
+                regla = rrulestr(ev["rrule"], dtstart=base)
+                ocurrencias = list(regla.between(desde, hasta, inc=True))
+            except Exception:
+                try:
+                    regla = rrulestr(ev["rrule"], dtstart=base.replace(tzinfo=None))
+                    ocurrencias = [
+                        o.replace(tzinfo=base.tzinfo)
+                        for o in regla.between(
+                            desde.replace(tzinfo=None), hasta.replace(tzinfo=None), inc=True)
+                    ]
+                except Exception:
+                    ocurrencias = [base]
+
+        for cuando in ocurrencias:
+            # A HORA LOCAL antes de comparar y de mostrar. Sin esto, un evento guardado
+            # como "20260805T200000Z" se mostraba como las 20:00 cuando acá son las 17:00
+            # (UTC-3). Google guarda en UTC los eventos creados desde otra zona o desde la
+            # web, así que el caso es habitual, no una rareza.
+            cuando = cuando.astimezone()
+            if desde <= cuando <= hasta:
+                salidas.append((cuando, ev.get("resumen", "(sin título)"),
+                                ev.get("lugar", ""), ev.get("dia_entero", False)))
+
+    return salidas
+
+
+def etiqueta(cuando: datetime, ahora: datetime, dia_entero: bool) -> str:
+    dias = (cuando.date() - ahora.date()).days
+    if dias == 0:
+        cabeza = "hoy"
+    elif dias == 1:
+        cabeza = "mañana"
+    elif dias < 7:
+        cabeza = f"en {dias} días"
+    else:
+        cabeza = cuando.strftime("%d/%m")
+    return cabeza if dia_entero else f"{cabeza} {cuando.strftime('%H:%M')}"
+
+
+def main() -> int:
+    if not CONFIG.is_file():
+        return 0
+
+    ahora = datetime.now().astimezone()
+    hasta = ahora + timedelta(days=DIAS_ADELANTE)
+
+    todos = []
+    for n, url in enumerate(u.strip() for u in CONFIG.read_text().splitlines()):
+        if not url or url.startswith("#"):
+            continue
+        ics = descargar(url, CACHE / f"cal{n}.ics")
+        if ics:
+            todos.extend(eventos_de(ics, ahora, hasta))
+
+    todos.sort(key=lambda e: e[0])
+
+    for cuando, resumen, lugar, dia_entero in todos[:MAX_EVENTOS]:
+        # El primer campo lo muestra el panel de preview, así que va legible y en local,
+        # no el ISO crudo con el offset ("2026-08-05T20:00+00:00" no le dice nada a nadie).
+        dias_es = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+        meses_es = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+                    "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+        largo = (f"{dias_es[cuando.weekday()]} {cuando.day} de {meses_es[cuando.month - 1]}"
+                 f" de {cuando.year}")
+        if not dia_entero:
+            largo += cuando.strftime("  ·  %H:%M")
+
+        campos = [
+            largo,
+            etiqueta(cuando, ahora, dia_entero),
+            resumen.replace("\t", " "),
+            lugar.replace("\t", " "),
+        ]
+        print("\t".join(campos))
+
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Exception:
+        # El menú tiene que abrir igual aunque el calendario falle.
+        raise SystemExit(0)

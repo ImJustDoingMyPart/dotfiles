@@ -1,0 +1,75 @@
+palette = "theme"
+# ~/.config/starship.toml
+# Prompt minimalista y rápido
+format = """
+$directory\
+$git_branch\
+$git_status\
+$character"""
+
+right_format = """$cmd_duration"""
+
+[directory]
+style = "cyan bold"
+truncation_length = 3
+
+[git_branch]
+symbol = " "
+style = "purple"
+
+[git_status]
+style = "red"
+
+[character]
+success_symbol = "[❯](magenta)"
+error_symbol = "[❯](red)"
+
+[cmd_duration]
+min_time = 3_000
+style = "bright-black"
+format = "[$duration]($style)"
+
+# >>> THEME STARSHIP PALETTE >>>
+# Template de matugen. NO es el starship.toml: es solo el bloque de paleta que
+# `starship-palette-apply` inyecta dentro de él entre marcadores.
+#
+# Por qué no se genera el archivo entero (el gotcha que ya estaba anotado en el plan):
+# matugen sobreescribe el archivo completo, y starship.toml tiene el PROMPT de Roberto.
+# Generarlo entero borraría esa configuración en cada cambio de wallpaper. Noctalia
+# resolvía lo mismo inyectando entre marcadores; acá se replica con un post_hook.
+
+[palettes.theme]
+# Colores estándar
+blue      = "#e6bdbe"
+red       = "#ffb4ab"
+green     = "#ffb2b7"
+yellow    = "#e7c08e"
+cyan      = "#e6bdbe"
+magenta   = "#ffb2b7"
+white     = "#f0dede"
+black     = "#3d3232"
+
+# Nombres compatibles con Catppuccin, que es lo que asumen la mayoría de los presets
+rosewater = "#e7c08e"
+flamingo  = "#ffb4ab"
+pink      = "#ffb2b7"
+mauve     = "#e6bdbe"
+maroon    = "#ffb4ab"
+peach     = "#e7c08e"
+teal      = "#e6bdbe"
+sky       = "#e6bdbe"
+sapphire  = "#e6bdbe"
+lavender  = "#ffb2b7"
+text      = "#f0dede"
+subtext1  = "#d7c1c2"
+subtext0  = "#9f8c8d"
+overlay2  = "#9f8c8d"
+overlay1  = "#524344"
+overlay0  = "#524344"
+surface2  = "#3d3232"
+surface1  = "#322828"
+surface0  = "#271d1e"
+base      = "#1a1112"
+mantle    = "#22191a"
+crust     = "#140c0c"
+# <<< THEME STARSHIP PALETTE <<<

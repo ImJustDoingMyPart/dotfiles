@@ -1,0 +1,55 @@
+// ════════════════════════════════════════════════════════════════════════════════
+// AUTOSTART — VERSIÓN WALKER
+//
+// Está casi vacío A PROPÓSITO. Todo lo que antes era `spawn-at-startup` pasó a ser
+// SERVICIOS DE USUARIO DE SYSTEMD en ~/.config/systemd/user/, atados a
+// graphical-session.target (el mismo mecanismo que ya usaba elephant):
+//
+//     mako.service · swayosd.service · awww.service
+//     awww-backdrop.service · openrgb.service · elephant.service · walker.service
+//
+// más hypridle.service e ironbar.service, que son los ÚNICOS que no están en
+// ~/.config/systemd/user/: los traen sus paquetes (/usr/lib/systemd/user/) ya con
+// Restart=on-failure y atados a graphical-session.target. hypridle reemplazó al
+// swayidle.service hecho a mano en la migración a hypridle + hyprlock (2026-08-13);
+// ironbar reemplazó a waybar el 2026-08-14 (etapa B del plan de migración a GTK4).
+//
+// ironbar SÍ necesita un drop-in propio, en
+// ~/.config/systemd/user/ironbar.service.d/override.conf, por dos motivos:
+//   1. la unidad del paquete no trae [Install], así que sin el drop-in
+//      `systemctl --user enable ironbar` falla con "no installation config";
+//   2. SuccessExitStatus=SIGTERM, para que el `pkill ironbar` de vsIronBar Studio no se
+//      lea como caída y systemd no relance una segunda barra encima de la del editor.
+// El "por qué" largo está en el propio archivo.
+//
+// (swaync.service ya NO existe: mako lo reemplazó en la migración. Se probó volver a
+// swaync el 2026-08-14 y se descartó por su apariencia; ver el plan de migración a GTK4.)
+//
+// OJO con el daemon de notificaciones: NO alcanza con parar su unidad para cambiarlo.
+// Tanto mako como swaync traen archivo de activación D-Bus para
+// org.freedesktop.Notifications (/usr/share/dbus-1/services/), así que D-Bus revive al
+// que esté instalado en cuanto alguien manda una notificación. Solo puede haber uno
+// instalado a la vez.
+//
+// Por qué el cambio, y por qué importa especialmente en esta máquina: el arranque es
+// **autologin por greetd** (`initial_session`, sin greeter). Si un daemon se muere,
+// `spawn-at-startup` no lo revive y no queda registro de qué pasó. Con systemd hay
+// `Restart=on-failure`, estado consultable (`systemctl --user status ironbar`) y logs en
+// el journal. Además cada pieza se reinicia sola sin reiniciar la sesión entera:
+//
+//     systemctl --user restart ironbar
+//     journalctl --user -u mako -f
+//
+// El único fallback si la sesión gráfica no levanta es el `default_session` de greetd
+// (`agreety`, login de texto en la VT1). Cuantas menos cosas puedan tumbar la sesión,
+// mejor.
+//
+// Para activar los servicios (una sola vez):
+//     systemctl --user enable --now mako swayosd awww awww-backdrop openrgb walker
+//     systemctl --user enable --now hypridle ironbar
+//
+// awww-backdrop es el segundo daemon de wallpaper, el que le da fondo blureado al
+// overview. Ver la layer-rule en cfg/rules.kdl.
+// ════════════════════════════════════════════════════════════════════════════════
+
+// Sin entradas. Ver arriba.

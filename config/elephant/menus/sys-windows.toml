@@ -1,0 +1,29 @@
+# Categoría del índice de `Mod+,`. Generada al agrupar la lista plana de 16 entradas
+# (2026-08-06), que en orden arbitrario era difícil de recorrer.
+#
+# `parent = "system"` es lo que hace que la flecha IZQUIERDA vuelva al índice. No se hereda:
+# cada menú tiene que declararlo. Los menús HOJA que se abren desde acá declaran a su vez
+# `parent = "sys-windows"`, para que el atrás los devuelva a esta categoría y no al índice.
+#
+# `fixed_order = true` es obligatorio: sin eso elephant reordena por score y el orden
+# alfabético se pierde. Ya pasó con la agenda.
+
+name = "sys-windows"
+name_pretty = "Ventanas"
+description = "acciones y sesiones de niri"
+icon = "cs-overview"
+parent = "system"
+fixed_order = true
+
+[[entries]]
+text = "Acciones de niri"
+subtext = "todo lo de `niri msg action`, buscable"
+keywords = ["niri", "accion", "action", "compositor", "ventana"]
+icon = "cs-overview"
+actions = { "abrir" = "sh -c 'sleep 0.2; walker --provider niriactions'" }
+[[entries]]
+text = "Sesiones de niri"
+subtext = "sesiones de ventanas guardadas"
+keywords = ["niri", "sesion", "session", "layout"]
+icon = "preferences-system-session"
+actions = { "abrir" = "sh -c 'sleep 0.2; walker --provider nirisessions'" }

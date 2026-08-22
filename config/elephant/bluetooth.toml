@@ -1,0 +1,29 @@
+# Bluetooth — solo se pisa el ícono.
+#
+# CRITERIO DE ÍCONOS DEL PROVIDERLIST (2026-08-05), que vale para toda esta carpeta:
+# todo lo que se lista en Mod+Comma usa íconos de la carpeta `apps/` de Papirus-Dark,
+# que son los rellenos y a color. Los que salían monocromos venían de `symbolic/`,
+# `actions/` o `devices/` y se leían como de otro sistema al lado del resto.
+#
+# Verificado RENDERIZANDO cada ícono con el mismo motor que usa walker (GtkIconTheme de
+# GTK4), no leyendo nombres: contar colores en el SVG se equivoca — un círculo azul
+# sólido declara un solo tono y aun así es un ícono a color.
+#
+# Acá el default era `bluetooth-symbolic`, glifo de línea gris.
+#
+# EXCEPCIÓN CONOCIDA: `Playerctl` se queda con `media-playback-start`, un triángulo gris.
+# Ese provider NO LEE su archivo de config en elephant 2.22.0 — ni `icon` ni `name_pretty`
+# hacen nada, ni sueltos ni bajo [Config], aunque `elephant generate doc` documente
+# ~/.config/elephant/playerctl.toml con esos campos. Por eso no hay playerctl.toml en esta
+# carpeta: un archivo que no hace nada engaña más que su ausencia. Revisar si sube de versión.
+#
+# NO CORRER `elephant generate config`: reescribe TODOS los archivos de esta carpeta,
+# los normaliza a la forma canónica y BORRA LOS COMENTARIOS. Conserva los valores, no la
+# prosa. Pasó el 2026-08-05 y se llevó puestos los comentarios de desktopapplications.toml.
+#
+# Y OJO con lo que genera: pone `icon` dentro de una sección [Config] que el propio
+# elephant 2.22.0 IGNORA al cargar. La forma que SÍ funciona es la clave suelta arriba de
+# todo, como está acá. Verificado las dos veces contra el providerlist real, no leyendo
+# la doc: con [Config] los íconos volvían a los defaults.
+
+icon = 'preferences-system-bluetooth'

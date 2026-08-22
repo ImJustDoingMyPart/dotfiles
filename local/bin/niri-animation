@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Cambia el pack de animaciones de niri.
+#
+# Uso:  niri-animation <nombre-del-pack>      (sin .kdl)
+#       niri-animation --actual
+#
+# Reemplaza al plugin de Noctalia "niri-animations" (Mod+A), que queda huérfano al
+# salir de Noctalia. Hace lo mismo que hacía el plugin: reescribir la línea `include`
+# de ~/.config/niri/animations.kdl apuntando al pack elegido dentro de ./animations/.
+#
+# Se reescribe SOLO esa línea, con sed en el lugar, y no el archivo entero: así el
+# bloque `animations { slowdown ... }` que vive abajo se conserva tal cual. El plugin
+# regeneraba todo y por eso avisaba "no editar a mano".
+
+set -euo pipefail
+
+NIRI_DIR="$HOME/.config/niri"
+ANIM_FILE="$NIRI_DIR/animations.kdl"
+PACKS_DIR="$NIRI_DIR/animations"
+
+actual() {
+  sed -n 's#^include "\./animations/\(.*\)\.kdl"#\1#p' "$ANIM_FILE" | head -1
+}
+
+case "${1:-}" in
+  --actual) actual; exit 0 ;;
+  "")
+    echo "uso: niri-animation <pack> | --actual" >&2
+    find "$PACKS_DIR" -name '*.kdl' -printf '  %P\n' | sed 's/\.kdl$//' | sort >&2
+    exit 1
+    ;;
+esac
+
+pack="$1"
+
+if [[ ! -f "$PACKS_DIR/$pack.kdl" ]]; then
+  echo "niri-animation: no existe el pack '$pack'" >&2
+  exit 1
+fi
+
+# Backup: si el sed deja el KDL inválido, la config de niri entera se cae — animations.kdl
+# se incluye desde config.kdl. Se valida antes de dejarlo puesto.
+backup=$(mktemp)
+cp "$ANIM_FILE" "$backup"
+
+sed -i "s#^include \"\./animations/.*\.kdl\"#include \"./animations/$pack.kdl\"#" "$ANIM_FILE"
+
+if ! niri validate >/dev/null 2>&1; then
+  cp "$backup" "$ANIM_FILE"
+  rm -f "$backup"
+  echo "niri-animation: '$pack' deja la config inválida, se revirtió" >&2
+  exit 1
+fi
+
+rm -f "$backup"
+
+niri msg action load-config-file >/dev/null 2>&1 || true
+
+echo "niri-animation: activado '$pack'"

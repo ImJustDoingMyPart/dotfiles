@@ -1,0 +1,22 @@
+# Template de matugen -> ~/.config/themes/matugen/mako
+#
+# Formato de mako: clave=valor, sin secciones. Lo consume el `include=` de
+# ~/.config/mako/config, que apunta al symlink ~/.config/mako/theme.
+#
+# dotfriedrice define solo tres colores acá (text, border, background); se suman
+# progress-color y las variantes por urgencia, que su tema no cubre.
+#
+# Sin placeholders dentro de comentarios: el motor de matugen no los distingue.
+
+background-color={{colors.surface_container.default.hex}}
+text-color={{colors.on_surface.default.hex}}
+border-color={{colors.outline_variant.default.hex}}
+progress-color=over {{colors.primary.default.hex}}
+
+[urgency=low]
+border-color={{colors.outline_variant.default.hex}}
+text-color={{colors.on_surface_variant.default.hex}}
+
+[urgency=critical]
+border-color={{colors.error.default.hex}}
+text-color={{colors.on_surface.default.hex}}

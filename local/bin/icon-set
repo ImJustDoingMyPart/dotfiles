@@ -1,0 +1,245 @@
+#!/usr/bin/env bash
+# Switcher de paquete de íconos, con auto-matching de color contra matugen.
+#
+# Uso:
+#   icon-set                  lista los paquetes disponibles y marca el activo
+#   icon-set --actual         imprime solo el nombre del paquete activo
+#   icon-set --resync         re-resuelve la variante de color del paquete activo
+#                             contra el `colors.primary` actual de matugen (lo
+#                             llama theme-matugen en cada cambio de wallpaper)
+#   icon-set <paquete>        activa ese paquete (resolviendo variante si aplica)
+#
+# Dos MECANISMOS de paquete "con variantes de color", y son DISTINTOS a propósito:
+#
+#   Tela-circle   paquetes de pacman con un tema completo POR color
+#                 (Tela-circle-<color>[-dark|-light]). Elegir variante = cambiar
+#                 el NOMBRE del icon-theme.
+#   Papirus       un solo tema; el color lo pinta `papirus-folders` REESCRIBIENDO
+#                 los SVG de carpeta en el propio directorio del tema. Elegir
+#                 variante = correr un comando — el nombre de icon-theme NO cambia.
+#
+# El resto de los paquetes instalados (breeze, breeze-dark, Dracula) no tienen
+# variantes: se aplican tal cual, sin pasar por matugen.
+#
+# NO HAY ARCHIVO DE ESTADO PROPIO: el paquete activo se DERIVA del valor actual
+# de `gsettings ... icon-theme`, igual que niri-animation deriva el pack activo
+# leyendo el include en vez de duplicar el dato en otro archivo. Una fuente de
+# verdad menos que se pueda desincronizar entre el menú y el hook de wallpaper.
+
+set -euo pipefail
+
+GS_KEY="org.gnome.desktop.interface icon-theme"
+GTK3_INI="$HOME/.config/gtk-3.0/settings.ini"
+GTK4_INI="$HOME/.config/gtk-4.0/settings.ini"
+PREFER="${THEME_MATUGEN_PREFER:-saturation}"
+
+# ─── Los 8 hues "de rueda de color" que entran al auto-matching (2026-08-19) ───
+# Deliberadamente NO incluye black/grey/dracula/manjaro/nord/ubuntu de Tela: son
+# paletas de marca o neutros, no un punto en el círculo de matiz, y dejar que un
+# wallpaper gris salte a "dracula" por matchear baja saturación sería un salto
+# que nadie pidió. Esos siguen elegibles A MANO desde el menú de walker; lo que
+# no hacen es participar del auto-match por wallpaper.
+#
+# Los hex son el `fill` real de cada folder.svg instalado, no un valor de
+# memoria. Si algún paquete se actualiza y cambia su paleta, re-derivar con:
+#
+#   grep -oE 'fill="#[0-9a-fA-F]{6}"' /usr/share/icons/Tela-circle-<c>/scalable/places/folder.svg
+#   grep -oE 'fill:#[0-9a-fA-F]{6}' ~/.local/share/icons/Papirus-Dark/16x16/places/folder-<c>.svg
+TELA_SWATCHES=(
+  red=#ef5350 orange=#ff9800 yellow=#ffca28 green=#66bb6a
+  blue=#5677fc purple=#7e57c2 pink=#f06292 brown=#795548
+)
+PAPIRUS_SWATCHES=(
+  red=#e25252 orange=#ee923a yellow=#f9bd30 green=#87b158
+  blue=#5294e2 purple=#7e57c2 pink=#f06292 brown=#ae8e6c
+)
+# Mismos 8 nombres que arriba; el VALOR es el color que entiende `papirus-folders`
+# (su paleta no tiene "purple", tiene "violet" — verificado con `papirus-folders -l`).
+declare -A PAPIRUS_COLOR_ARG=(
+  [red]=red [orange]=orange [yellow]=yellow [green]=green
+  [blue]=blue [purple]=violet [pink]=pink [brown]=brown
+)
+
+PAPIRUS_LOCAL_DIR="$HOME/.local/share/icons"
+
+# ───────────────────────── Utilidades ─────────────────────────
+
+primary_hex() {
+  local wp
+  wp=$(wallpaper-set --actual 2>/dev/null) || return 1
+  [[ -n $wp && -r $wp ]] || return 1
+
+  matugen image "$wp" --prefer "$PREFER" --json hex --dry-run --quiet 2>/dev/null |
+    python3 -c 'import json,sys; print(json.load(sys.stdin)["colors"]["primary"]["default"]["color"])' \
+    2>/dev/null
+}
+
+current_theme() { gsettings get $GS_KEY 2>/dev/null | tr -d "'"; }
+
+# gtk-3.0/gtk-4.0 settings.ini, igual que font-set y cursor-set: una app en Flatpak
+# puede tener ~/.config bind-mounteado sin acceso a dconf/gsettings del host, y ahí
+# settings.ini es la única fuente que le llega. Mismo patrón que gtk_ini() de
+# font-set (temporal + `cat`, no `mv`, para conservar permisos y dueño).
+sync_icon_ini() {
+  local theme="$1" file tmp
+  for file in "$GTK3_INI" "$GTK4_INI"; do
+    [[ -f $file ]] || continue
+    tmp=$(mktemp)
+    if awk -v theme="$theme" '
+        /^gtk-icon-theme-name=/ { $0 = "gtk-icon-theme-name=" theme; hecho = 1 }
+        { print }
+        END { if (!hecho) exit 3 }
+      ' "$file" >"$tmp"; then
+      cat "$tmp" >"$file"
+    else
+      echo "icon-set: aviso — no encontré gtk-icon-theme-name en $file, lo dejo como estaba" >&2
+    fi
+    rm -f "$tmp"
+  done
+}
+
+# Familia (paquete) activa, derivada del nombre de icon-theme vigente.
+active_family() {
+  local t
+  t=$(current_theme)
+  case "$t" in
+    Tela-circle*) echo "Tela-circle" ;;
+    Papirus*)     echo "Papirus" ;;
+    *)            echo "$t" ;;
+  esac
+}
+
+# ¿La familia tiene variantes de color?
+family_has_variants() {
+  case "$1" in
+    Tela-circle|Papirus) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+list_plain_families() {
+  local base f name
+  for base in /usr/share/icons "$HOME/.local/share/icons" "$HOME/.icons"; do
+    [[ -d $base ]] || continue
+    for f in "$base"/*/index.theme; do
+      [[ -f $f ]] || continue
+      name=$(basename "$(dirname "$f")")
+      grep -q '^Directories=' "$f" || continue
+      grep -q '^Hidden=true' "$f" && continue
+      case "$name" in
+        Tela-circle*|Papirus|Papirus-Dark|Papirus-Light|hicolor|locolor|default) continue ;;
+      esac
+      echo "$name"
+    done
+  done | sort -u
+}
+
+list_families() {
+  local active fam
+  active=$(active_family)
+  { printf '%s\n' "Tela-circle" "Papirus"; list_plain_families; } |
+    while read -r fam; do
+      if [[ $fam == "$active" ]]; then echo "* $fam"; else echo "  $fam"; fi
+    done
+}
+
+# ─── Papirus: copia local para no necesitar sudo (2026-08-19) ───
+#
+# papirus-folders escribe SOBRE el directorio del tema. El que instala pacman es
+# de root (/usr/share/icons/Papirus*), así que sin esto cada recoloreo pediría
+# sudo — inviable desde un hook de cambio de wallpaper, e imposible de resolver
+# dándole sudo sin contraseña al script (eso sí sería una escalada de
+# privilegios permanente, no algo que se hace de prepo). La solución es copiar
+# el tema a un lugar que el USUARIO ya puede escribir: ~/.local/share/icons, que
+# además el spec de iconos busca ANTES que /usr/share, así que
+# `gsettings icon-theme=Papirus-Dark` resuelve solo a la copia local sin tocar
+# el nombre de nada.
+papirus_localize() {
+  local variant src dst
+  for variant in Papirus Papirus-Dark Papirus-Light; do
+    src="/usr/share/icons/$variant"
+    dst="$PAPIRUS_LOCAL_DIR/$variant"
+    [[ -d $src && ! -d $dst ]] || continue
+    mkdir -p "$PAPIRUS_LOCAL_DIR"
+    cp -r "$src" "$dst"
+  done
+}
+
+# ─── Resolución de variante ─────────────────────────────────────
+
+resolve_tela() {
+  local hex="$1" hue
+  hue=$(icon-hue-pick "$hex" "${TELA_SWATCHES[@]}")
+  echo "Tela-circle-$hue-dark"
+}
+
+# ─── Por qué esto va al fondo (2026-08-19) ───
+#
+# Medido en esta máquina: `papirus-folders -C <color>` tarda 3,5-7 s, casi todo en
+# `gtk-update-icon-cache` sobre Papirus/-Dark/-Light enteros (~4700 archivos cada
+# uno) — lo hace SIEMPRE, el flag `-u/--update-caches` no lo condiciona pese a lo
+# que dice `--help` (verificado leyendo `/usr/bin/papirus-folders`: la variable
+# que lo desactivaría, `DISABLE_UPDATE_ICON_CACHE`, no se setea en ningún lado de
+# la 1.14.0). No hay manera de pedirle la versión rápida.
+#
+# Correrlo SINCRÓNICO acá colgaría el cambio de wallpaper entero varios segundos
+# — exactamente el lag que no se quería. Se manda al fondo: para cuando termina,
+# el resto del tema (barra, niri, walker, mako…) ya se actualizó, y el color de
+# carpeta "alcanza" un instante después sin que se perciba una pausa. Es
+# fire-and-forget a propósito — no hay nada que esperar ni que reportar acá.
+apply_papirus_color() {
+  local hex="$1" hue color
+  hue=$(icon-hue-pick "$hex" "${PAPIRUS_SWATCHES[@]}")
+  color="${PAPIRUS_COLOR_ARG[$hue]}"
+  ( papirus_localize; papirus-folders -t Papirus-Dark -C "$color" -o >/dev/null 2>&1 ) &
+}
+
+apply_family() {
+  local fam="$1" hex theme
+  case "$fam" in
+    Tela-circle)
+      hex=$(primary_hex || true)
+      if [[ -n ${hex:-} ]]; then
+        theme=$(resolve_tela "$hex")
+      else
+        echo "icon-set: no puedo leer el color de matugen, uso Tela-circle-dark sin resolver hue" >&2
+        theme="Tela-circle-dark"
+      fi
+      gsettings set $GS_KEY "$theme"
+      sync_icon_ini "$theme"
+      ;;
+    Papirus)
+      gsettings set $GS_KEY "Papirus-Dark"
+      sync_icon_ini "Papirus-Dark"
+      hex=$(primary_hex || true)
+      if [[ -n ${hex:-} ]]; then
+        apply_papirus_color "$hex"
+      else
+        echo "icon-set: no puedo leer el color de matugen, Papirus queda con el color de carpeta que tenía" >&2
+      fi
+      ;;
+    *)
+      gsettings set $GS_KEY "$fam"
+      sync_icon_ini "$fam"
+      ;;
+  esac
+}
+
+# ───────────────────────── CLI ─────────────────────────
+
+case "${1:-}" in
+  --actual) active_family; exit 0 ;;
+  --resync)
+    fam=$(active_family)
+    family_has_variants "$fam" || exit 0
+    apply_family "$fam"
+    exit 0
+    ;;
+  "")
+    list_families
+    exit 0
+    ;;
+esac
+
+apply_family "$1"
+echo "icon-set: activado '$1'"

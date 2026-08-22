@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Copia el snippet de color del tema activo dentro de cada vault de Obsidian.
+# Lo llaman theme-set (al cambiar de tema) y matugen como post_hook (al cambiar el
+# wallpaper). No hace falta correrlo a mano.
+#
+# ¿Por qué una COPIA y no un symlink, si todo el resto del switcher symlinkea?
+# Porque Obsidian vigila la carpeta del vault para recargar los snippets en caliente, y
+# a través de un symlink no ve nada: matugen reescribe el archivo DESTINO, la entrada de
+# directorio dentro del vault no cambia, y el snippet se queda con los colores viejos
+# hasta que alguien recargue Obsidian a mano. Probado en pantalla el 2026-08-07: con
+# symlink el fondo no se movía al cambiar el wallpaper; con copia sí.
+#
+# Es el mismo motivo por el que starship tampoco se symlinkea (ver theme-set).
+#
+# Los vaults se descubren en vez de listarse, para que uno nuevo entre solo.
+
+set -euo pipefail
+
+THEMES_DIR="$HOME/.config/themes"
+activo=$(cat "$THEMES_DIR/.activo" 2>/dev/null || echo "")
+src="$THEMES_DIR/$activo/obsidian.css"
+
+# Si el tema activo no define snippet de Obsidian (p. ej. un tema curado que todavía no
+# lo tiene), no se toca nada: queda el último que se copió, igual que hace theme-set con
+# los symlinks que no puede reapuntar.
+[[ -n $activo && -r $src ]] || exit 0
+
+for obsidian_dir in "$HOME"/workspace/vaults/*/.obsidian; do
+  [[ -d $obsidian_dir ]] || continue
+  dst="$obsidian_dir/snippets/theme.css"
+  mkdir -p "$(dirname "$dst")"
+  # Sin cmp previo a propósito: si el contenido no cambió, cp no altera nada relevante,
+  # y si cambió hace falta que se escriba para que el vigilante de Obsidian lo vea.
+  cp -f "$src" "$dst"
+done

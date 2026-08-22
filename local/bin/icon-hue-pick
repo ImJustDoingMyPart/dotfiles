@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""Elige, de una lista de colores nombrados, el más parecido a un color dado.
+
+Uso:  icon-hue-pick <hex-objetivo> <nombre>=<hex> [<nombre>=<hex> ...]
+
+Pensado para el auto-matching de variantes de color de paquetes de íconos: el
+"objetivo" es el `colors.primary` que devuelve matugen, y la lista es el swatch
+real de cada variante instalada (ver icon-set, sección SWATCHES — los hex están
+sacados del `fill` de los propios SVG de cada paquete, no inventados).
+
+La distancia pondera el HUE mucho más que saturación/luminosidad: los tonos
+`primary` de matugen (esquema tonal-spot) suelen salir pálidos o muy oscuros
+según el modo, y si la luminosidad pesara igual que el hue, un primary oscuro
+terminaría por matchear "brown" o "black" con cualquier wallpaper. Lo que hace
+a un color "la familia roja" es el matiz, no cuán claro salió ese día.
+"""
+import colorsys
+import sys
+
+
+def hex_to_hsl(value):
+    value = value.lstrip("#")
+    r, g, b = (int(value[i : i + 2], 16) / 255 for i in (0, 2, 4))
+    hue, light, sat = colorsys.rgb_to_hls(r, g, b)
+    return hue * 360, sat, light
+
+
+def main():
+    if len(sys.argv) < 3:
+        print("uso: icon-hue-pick <hex> <nombre>=<hex> [...]", file=sys.stderr)
+        sys.exit(1)
+
+    target_h, target_s, target_l = hex_to_hsl(sys.argv[1])
+
+    best_name, best_dist = None, float("inf")
+    for pair in sys.argv[2:]:
+        name, hexval = pair.split("=", 1)
+        h, s, l = hex_to_hsl(hexval)
+
+        dh = abs(target_h - h)
+        dh = min(dh, 360 - dh) / 180  # circular, normalizado a 0..1
+        ds = abs(target_s - s)
+        dl = abs(target_l - l)
+
+        dist = dh * 1.0 + ds * 0.35 + dl * 0.15
+        if dist < best_dist:
+            best_name, best_dist = name, dist
+
+    print(best_name)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,163 @@
+/* Waybar — hoja de estilo.
+ *
+ * Base: nickjj/dotfriedrice (.config/waybar/style.css). Se adopta casi tal cual porque
+ * es AGNÓSTICA DE COLOR: no tiene un solo hex, todo sale de @define-color declarados en
+ * theme.css. Eso es lo que permite el híbrido con matugen — theme.css es un symlink al
+ * tema activo, y si el tema activo es "matugen" ese archivo lo escribe matugen desde el
+ * wallpaper.
+ *
+ * `reload_style_on_change: true` en config.jsonc recarga el CSS cuando cambia esta hoja
+ * O CUALQUIER ARCHIVO IMPORTADO, así que theme.css nuevo se ve solo, sin hook ni señal.
+ *
+ * Única diferencia estética contra dotfriedrice: la fuente. Ellos usan `monospace` a
+ * secas; acá `monospace` resuelve a Noto Sans Mono, que NO trae glifos Nerd Font y
+ * dejaría todos los íconos en tofu. Se usa JetBrainsMono Nerd Font, la misma de
+ * Alacritty, con monospace de fallback.
+ */
+
+@import "./theme.css";
+
+* {
+  color: @foreground;
+
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 14px;
+
+  border: none;
+  border-radius: 0;
+
+  min-height: 0;
+}
+
+window#waybar {
+  background-color: @background;
+}
+
+.modules-left {
+  margin-left: 0;
+}
+
+.modules-right {
+  margin-right: 0;
+}
+
+/* ── Workspaces ────────────────────────────────────────────────────────────── */
+
+#workspaces button {
+  all: initial;
+  padding: 0 7px;
+  margin: 0;
+  min-width: 8px;
+  color: @foreground;
+  opacity: 0.45;
+}
+
+/* El workspace activo es el único a opacidad plena y en color de acento. Con
+ * `format: "{index}"` el número siempre está; lo que cambia es el énfasis. */
+#workspaces button.active,
+#workspaces button.focused {
+  opacity: 1;
+  color: @accent;
+}
+
+#workspaces button.urgent {
+  opacity: 1;
+  color: @urgent;
+}
+
+/* ── Espaciado ─────────────────────────────────────────────────────────────────
+ *
+ * UNA sola distancia entre módulos (16px), con una única excepción: CPU y su
+ * temperatura van a 6px porque son el mismo componente y se leen como una unidad.
+ *
+ * El intento anterior agrupaba volumen+bluetooth+red a distancia corta, como si
+ * fueran una familia. No lo son: son tres cosas sin relación, y quedaban visualmente
+ * pegadas entre sí y separadas del resto sin motivo.
+ *
+ * OJO al medir: el hueco VISIBLE no es el margin. Midiendo columnas de píxeles sobre
+ * una captura, márgenes idénticos de 16px daban huecos de 12 a 16px según el módulo,
+ * porque cada glifo Nerd Font tiene su propio side bearing dentro del avance. No se
+ * compensa glifo por glifo — sería frágil y se rompería al cambiar cualquier ícono;
+ * se acepta esa variación de un par de píxeles y se elimina la que sí era estructural.
+ */
+
+#mpris,
+#tray,
+#custom-expand-icon,
+#cpu,
+#memory,
+#custom-gpu,
+#pulseaudio,
+#clock,
+#custom-weather,
+#custom-menu,
+#custom-notification,
+#custom-session {
+  min-width: 0;
+  margin: 0 8px;
+  padding: 0;
+}
+
+/* El relleno que centra el ':' del reloj va SIN margen ni padding: su ancho tiene que ser
+ * exactamente el que emite `weather-forecast --pad`, ni un píxel más. Un margen acá se
+ * sumaría a la cuenta y correría el reloj 16px a la derecha.
+ *
+ * El selector `#clock` de la regla de arriba cubre las DOS instancias (`clock#date` y
+ * `clock#time`): el sufijo `#nombre` de waybar se agrega como CLASE CSS, no como id, así
+ * que el id sigue siendo `clock` en ambas. Para distinguirlas: `#clock.date` / `#clock.time`.
+ * Hoy no hace falta — las dos quieren los mismos 8px por lado. */
+#custom-center-pad {
+  margin: 0;
+  padding: 0;
+}
+
+/* Bordes de la barra: la mitad, para que no quede un hueco raro contra el filo. */
+#custom-menu {
+  margin-left: 10px;
+}
+
+/* El medio hueco contra el filo derecho lo lleva SIEMPRE el último módulo. Al agregar
+ * `custom/session` después de las notificaciones, el margin-right se mudó acá y
+ * `#custom-notification` volvió a los 8px por lado de la regla general.
+ *
+ * Medido sobre captura (2026-08-05): izquierda 10px, derecha 8px. Los 2px de diferencia
+ * son el side bearing del glifo de power (U+F0425), no un error de margen — NO se
+ * compensan subiendo este valor a 12px, porque eso se rompe al cambiar el ícono. Los
+ * huecos entre módulos de la derecha quedaron en 13-15px, dentro de la misma variación
+ * que ya tenía la barra con 16px de margen uniforme. */
+#custom-session {
+  margin-right: 10px;
+}
+
+/* Ya no hay excepción de espaciado: el módulo `temperature`, que era el único que se
+ * pegaba a otro por ser el mismo componente, se quitó de la barra. Todo a 16px. */
+
+/* ── Estados ───────────────────────────────────────────────────────────────── */
+
+#cpu.warning,
+#memory.warning,
+#custom-gpu.warning {
+  color: @warning;
+}
+
+#cpu.critical,
+#memory.critical,
+#custom-gpu.critical {
+  color: @urgent;
+}
+
+#pulseaudio.muted {
+  opacity: 0.5;
+}
+
+/* ── Tooltips ──────────────────────────────────────────────────────────────── */
+
+tooltip {
+  background-color: @tooltip;
+  border: 1px solid @tooltip-border;
+}
+
+tooltip * {
+  padding: 2px;
+  color: @foreground;
+}

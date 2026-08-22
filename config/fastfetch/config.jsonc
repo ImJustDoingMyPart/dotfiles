@@ -1,0 +1,143 @@
+{
+    "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+    "logo": {
+        "type": "file",
+        "source": "/home/anon/.config/fastfetch/ascii_art.txt",
+        "padding": {
+            "top": 1,
+            "left": 2,
+            "right": 2
+        },
+        "color": {
+            "1": "red",
+            "2": "white"
+        }
+    },
+    "display": {
+        "separator": " "
+    },
+    "modules": [
+        "break",
+        "break",
+        "break",
+        "break",
+        "break",
+        {
+            "key": "{#31}╭───────────────╮",
+            "type": "custom"
+        },
+        {
+            "key": "{#31}│ {#37} 󰊠 fastfetch  {#31}│",
+            "type": "colors",
+            "symbol": "circle"
+        },
+        {
+            "key": "{#31}│ {#37} 󰣇 os         {#31}│",
+            "type": "os",
+            "format": "{pretty-name}"
+        },
+        {
+            "key": "{#31}│ {#37} 󰞷 shell      {#31}│",
+            "type": "shell",
+            "format": "{pretty-name}"
+        },
+        {
+            "key": "{#31}│ {#37} 󰆍 terminal   {#31}│",
+            "type": "terminal",
+            "format": "{pretty-name}"
+        },
+        {
+            "key": "{#31}├───────────────┤",
+            "type": "custom"
+        },
+        {
+            "key": "{#31}│ {#37} 󰻠 cpu        {#31}│",
+            "type": "cpu",
+            "format": "{name}"
+        },
+        {
+            "key": "{#31}│ {#37} 󰢮 gpu        {#31}│",
+            "type": "gpu",
+            "format": "{name}"
+        },
+        {
+            "key": "{#31}│ {#37} 󰍛 memory     {#31}│",
+            "type": "memory",
+            "format": "{used} ({percentage})"
+        },
+        {
+            "key": "{#31}│ {#37} 󰋊 disk       {#31}│",
+            "type": "disk",
+            "folders": "/",
+            "format": "{size-used} ({size-percentage})"
+        },
+        {
+            "key": "{#31}│ {#37} 󰪩 board      {#31}│",
+            "type": "board",
+            "format": "{name}"
+        },
+        {
+            "key": "{#31}│ {#37} 󰒡 bios       {#31}│",
+            "type": "bios"
+        },
+        {
+            "key": "{#31}├───────────────┤",
+            "type": "custom"
+        },
+        {
+            "key": "{#31}│ {#37} 󰨇 wm         {#31}│",
+            "type": "wm",
+            "format": "{pretty-name}"
+        },
+        {
+            "key": "{#31}│ {#37} 󰏘 theme      {#31}│",
+            "type": "theme",
+            "format": "{theme2}"
+        },
+        {
+            "key": "{#31}│ {#37} 󰀻 icons      {#31}│",
+            "type": "icons",
+            "format": "{icons1}"
+        },
+        {
+            "key": "{#31}│ {#37} 󰛖 font       {#31}│",
+            "type": "font",
+            "format": "{font1}"
+        },
+        {
+            "key": "{#31}│ {#37} 󰛖 termfont   {#31}│",
+            "type": "terminalfont",
+            "format": "{name}"
+        },
+        {
+            "key": "{#31}│ {#37} 󰆿 cursor     {#31}│",
+            "type": "cursor"
+        },
+        {
+            "key": "{#31}│ {#37} 󰍹 display    {#31}│",
+            "type": "display",
+            "format": "{width}x{height} @{refresh-rate}Hz"
+        },
+        {
+            "key": "{#31}├───────────────┤",
+            "type": "custom"
+        },
+        {
+            "key": "{#31}│ {#37} 󰩟 localip    {#31}│",
+            "type": "localip"
+        },
+        {
+            "key": "{#31}│ {#37} 󰩠 publicip   {#31}│",
+            "type": "publicip",
+            "format": "{ip}"
+        },
+        {
+            "key": "{#31}│ {#37} 󰒍 dns        {#31}│",
+            "type": "dns"
+        },
+        {
+            "key": "{#31}╰───────────────╯",
+            "type": "custom"
+        }
+    ]
+}

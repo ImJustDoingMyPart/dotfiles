@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# Luz nocturna (temperatura de color) con wlsunset.
+#
+# Uso:  nightlight on|off|toggle|status [temperatura]
+#
+# Modo MANUAL a propósito: se quiere UNA temperatura constante, no una interpolación
+# entre día y noche por horario solar. El modo automático pediría latitud y longitud
+# reales (-l/-L) o los horarios de amanecer y atardecer a mano (-S/-s); meter coordenadas
+# inventadas daría transiciones a horas equivocadas. Si algún día se quiere automático,
+# hay que poner las coordenadas de verdad en AUTO_ARGS de abajo.
+#
+# CÓMO se consigue la temperatura constante (arreglado el 2026-08-05):
+#
+#   Antes esto pasaba `-t $TEMP -T $TEMP` — el mismo valor a las dos puntas. wlsunset
+#   0.4.0 RECHAZA eso y sale con código 1 antes de tocar el gamma:
+#
+#       high temp (4000) must be higher than low (4000) temp
+#
+#   Como el arranque era `setsid -f ... >/dev/null 2>&1`, el error se perdía y el toggle
+#   no hacía absolutamente nada: ni cambiaba el color ni dejaba proceso vivo, así que
+#   `status` seguía diciendo "off" y el menú de toggles nunca marcaba el estado.
+#
+#   La vía DOCUMENTADA para forzar una temperatura fija es SIGUSR1 (sección RUNTIME
+#   CONTROL de `man 1 wlsunset` de la versión instalada): cada señal cicla entre
+#   1. forzar la temperatura alta, 2. forzar la baja, 3. automático (el default). Se
+#   arranca en automático, así que DOS señales dejan el proceso en "forzar la baja", que
+#   es exactamente la luz nocturna. Verificado en esta máquina:
+#
+#       forcing low temperature
+#       setting temperature to 4000 K
+#
+#   El otro motivo para no confiar en el modo automático sin coordenadas: wlsunset
+#   reporta "calculated sun trajectory: midnight sun" y se queda en la temperatura ALTA
+#   para siempre. Sin las dos señales, el proceso vive pero no calienta nada.
+
+set -euo pipefail
+
+TEMP="${2:-${NIGHTLIGHT_TEMP:-4000}}"
+
+# La temperatura alta nunca se usa (el proceso queda forzado en la baja), pero wlsunset
+# exige que sea estrictamente mayor. 6500 K es su propio default y el punto neutro; si
+# alguien pide una TEMP más cálida que eso, se corre la alta para que siga siendo válida.
+if (( TEMP >= 6500 )); then
+  TEMP_HIGH=$(( TEMP + 500 ))
+else
+  TEMP_HIGH=6500
+fi
+
+# Para pasar a modo automático, reemplazar el contenido por algo como:
+#   AUTO_ARGS=(-l -34.6 -L -58.4 -t 4000 -T 6500)
+# En ese caso NO se mandan las señales: el punto del modo automático es justamente que
+# wlsunset decida la temperatura por hora del día.
+AUTO_ARGS=()
+
+is_on() { pgrep -x wlsunset >/dev/null; }
+
+notify() {
+  command -v notify-send >/dev/null && notify-send -a "Luz nocturna" -u low "$1" "$2" || true
+}
+
+case "${1:-toggle}" in
+  status)
+    is_on && echo "on" || echo "off"
+    ;;
+  on)
+    # Se mata cualquier instancia previa: wlsunset no relee su configuración, y dos
+    # procesos peleando por el gamma dejan el color donde caiga el último.
+    pkill -x wlsunset 2>/dev/null || true
+
+    if ((${#AUTO_ARGS[@]})); then
+      setsid -f wlsunset "${AUTO_ARGS[@]}" >/dev/null 2>&1
+      notify "Luz nocturna activada" "modo automático"
+      exit 0
+    fi
+
+    setsid -f wlsunset -t "$TEMP" -T "$TEMP_HIGH" >/dev/null 2>&1
+
+    # `setsid -f` desprende el proceso, así que el PID no vuelve por $!: hay que buscarlo.
+    # Se espera a que aparezca en vez de dormir a ciegas, igual que hace awww.service.
+    pid=""
+    for _ in $(seq 30); do
+      pid=$(pgrep -x wlsunset | head -1) && [[ -n $pid ]] && break
+      sleep 0.1
+    done
+
+    if [[ -z $pid ]]; then
+      notify "Luz nocturna" "wlsunset no arrancó"
+      exit 1
+    fi
+
+    # Dos SIGUSR1 = automático -> forzar alta -> forzar baja. Ver el comentario de arriba.
+    # El sleep entre medio no es cosmético: las señales las procesa el bucle de eventos,
+    # y dos seguidas antes de una vuelta del bucle se colapsan en una sola (POSIX no
+    # encola señales estándar), lo que dejaría la pantalla forzada en la temperatura ALTA.
+    sleep 0.2
+    kill -USR1 "$pid"
+    sleep 0.2
+    kill -USR1 "$pid"
+
+    notify "Luz nocturna activada" "${TEMP}K"
+    ;;
+  off)
+    # wlsunset restaura el gamma original al recibir SIGTERM, así que no hace falta
+    # resetearlo a mano.
+    pkill -x wlsunset 2>/dev/null || true
+    notify "Luz nocturna desactivada" "Temperatura normal"
+    ;;
+  toggle)
+    if is_on; then "$0" off; else "$0" on "$TEMP"; fi
+    ;;
+  *)
+    echo "uso: nightlight on|off|toggle|status [temperatura]" >&2
+    exit 1
+    ;;
+esac

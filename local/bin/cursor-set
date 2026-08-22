@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# Switcher de tema de cursor.
+#
+# Uso:
+#   cursor-set                  lista los temas de cursor disponibles y marca el activo
+#   cursor-set --actual         imprime "<tema> <tamaño>"
+#   cursor-set <tema> [tamaño]  lo aplica (tamaño por defecto: el que ya estaba)
+#
+# Tres destinos, como font-set: el bloque `cursor { }` de niri (misc.kdl) — de ahí
+# lo toma niri mismo, y lo hereda cualquier proceso que lance —, gsettings
+# cursor-theme/cursor-size, que es lo que leen las apps GTK nativas en caliente
+# (verificado con Gtk.Settings.get_default(), no de memoria), y gtk-3.0/gtk-4.0
+# settings.ini, por la misma razón que font-set también lo toca ahí: una app en
+# Flatpak puede tener ~/.config bind-mounteado sin acceso a dconf/gsettings del
+# host, y ahí settings.ini es la única fuente que le llega. `xcursor-theme` y
+# `xcursor-size` dentro de `cursor { }` están verificados contra el binario 26.04
+# (niri validate acepta el bloque; no está en resources/default-config.kdl del
+# repo, así que la doc sola no alcanza — ver ~/.config/niri/cfg/misc.kdl, donde
+# ya estaba en uso).
+#
+# Sin motor de color acá: ningún tema de cursor instalado trae variantes de hue,
+# así que esto es un selector plano, sin acoplamiento a matugen. Por eso no puede
+# romper el auto-matching de íconos ni viceversa — no comparten ni código ni estado.
+
+set -euo pipefail
+
+MISC_KDL="$HOME/.config/niri/cfg/misc.kdl"
+GTK3_INI="$HOME/.config/gtk-3.0/settings.ini"
+GTK4_INI="$HOME/.config/gtk-4.0/settings.ini"
+GS_IFACE="org.gnome.desktop.interface"
+
+list_cursor_themes() {
+  local base d name
+  for base in /usr/share/icons "$HOME/.icons" "$HOME/.local/share/icons"; do
+    [[ -d $base ]] || continue
+    for d in "$base"/*/; do
+      d=${d%/}
+      name=$(basename "$d")
+      [[ -d "$d/cursors" ]] || continue
+      find "$d/cursors" -mindepth 1 -maxdepth 1 \( -type f -o -type l \) -print -quit 2>/dev/null |
+        grep -q . && echo "$name"
+    done
+  done | sort -u
+}
+
+actual_theme() { sed -n 's/^[[:space:]]*xcursor-theme "\(.*\)"/\1/p' "$MISC_KDL" | head -1; }
+actual_size()  { sed -n 's/^[[:space:]]*xcursor-size \([0-9]\+\)/\1/p' "$MISC_KDL" | head -1; }
+
+# Igual que gtk_ini() en font-set: reescribe con awk sobre un temporal y hace `cat` (no
+# `mv`) para conservar permisos y dueño. Si la clave no está, avisa y deja el archivo
+# como estaba en vez de agregarla a ciegas — settings.ini no es un archivo generado, es
+# el que el usuario tiene desde el 2026-08-08.
+sync_cursor_ini() {
+  local file="$1" theme="$2" size="$3" tmp
+  [[ -f $file ]] || return 0
+  tmp=$(mktemp)
+  if awk -v theme="$theme" -v size="$size" '
+      /^gtk-cursor-theme-name=/ { $0 = "gtk-cursor-theme-name=" theme; hecho_n = 1 }
+      /^gtk-cursor-theme-size=/ { $0 = "gtk-cursor-theme-size=" size; hecho_s = 1 }
+      { print }
+      END { if (!hecho_n || !hecho_s) exit 3 }
+    ' "$file" >"$tmp"; then
+    cat "$tmp" >"$file"
+  else
+    echo "cursor-set: aviso — no encontré gtk-cursor-theme-name/size en $file, lo dejo como estaba" >&2
+  fi
+  rm -f "$tmp"
+}
+
+case "${1:-}" in
+  --actual) echo "$(actual_theme) $(actual_size)"; exit 0 ;;
+  "")
+    active=$(actual_theme)
+    while read -r t; do
+      [[ $t == "$active" ]] && echo "* $t" || echo "  $t"
+    done < <(list_cursor_themes)
+    exit 0
+    ;;
+esac
+
+theme="$1"
+size="${2:-$(actual_size)}"
+size="${size:-24}"
+
+if ! list_cursor_themes | grep -qx "$theme"; then
+  echo "cursor-set: no existe el tema de cursor '$theme'" >&2
+  exit 1
+fi
+
+# Mismo resguardo que niri-animation: si el sed deja el KDL inválido, se revierte
+# antes de avisarle a niri que recargue.
+backup=$(mktemp)
+cp "$MISC_KDL" "$backup"
+
+sed -i \
+  -e "s/xcursor-theme \".*\"/xcursor-theme \"$theme\"/" \
+  -e "s/xcursor-size [0-9]\+/xcursor-size $size/" \
+  "$MISC_KDL"
+
+if ! niri validate >/dev/null 2>&1; then
+  cp "$backup" "$MISC_KDL"
+  rm -f "$backup"
+  echo "cursor-set: '$theme' deja la config de niri inválida, se revirtió" >&2
+  exit 1
+fi
+rm -f "$backup"
+
+gsettings set $GS_IFACE cursor-theme "$theme"
+gsettings set $GS_IFACE cursor-size "$size"
+sync_cursor_ini "$GTK3_INI" "$theme" "$size"
+sync_cursor_ini "$GTK4_INI" "$theme" "$size"
+
+niri msg action load-config-file >/dev/null 2>&1 || true
+
+echo "cursor-set: activado '$theme' tamaño $size"

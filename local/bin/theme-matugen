@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Regenera el tema "matugen" a partir de una imagen.
+#
+# Uso:  theme-matugen [imagen]
+# Sin argumento usa el wallpaper actual (ver WALLPAPER más abajo).
+#
+# Escribe ~/.config/themes/matugen/{bar,walker}.css vía ~/.config/matugen/config.toml.
+# Si el tema activo es "matugen", los symlinks ya apuntan ahí, así que basta con avisarle
+# a cada programa. Walker toma el CSS nuevo en la próxima apertura.
+#
+# El aviso lo hace `theme-reload` al final, que es el mismo bloque que usa theme-set.
+# ANTES ESTE SCRIPT NO AVISABA NADA, y por eso al cambiar de wallpaper el escritorio se
+# quedaba con el color viejo: mako, kitty, niri, walker y la barra leen el archivo del
+# tema una sola vez. Con Waybar no se notaba porque tenía `reload_style_on_change` y
+# vigilaba también los imports; al migrar a Ironbar quedó a la vista.
+
+set -euo pipefail
+
+# --prefer NO es opcional. matugen 4.x, cuando una imagen tiene varios colores fuente
+# candidatos, abre un prompt interactivo para elegir; sin TTY aborta. Eso es exactamente
+# lo que pasa cuando lo dispara un menú del launcher o un hook: anda probado desde la
+# terminal y falla en uso real. Valores posibles: darkness, lightness, saturation,
+# less-saturation, value, closest-to-fallback.
+PREFER="${THEME_MATUGEN_PREFER:-saturation}"
+
+# De dónde sale el wallpaper actual, en orden de preferencia. La cadena existe porque
+# durante la migración conviven dos daemons de fondo y ninguno de los dos está garantizado.
+#
+#   1. El archivo de estado que escribe `wallpaper-set` — la fuente de verdad del stack nuevo.
+#   2. El daemon awww, si está vivo (cubre el caso de que alguien haya usado `awww img` a mano).
+#   3. El estado de Noctalia — fallback mientras siga siendo el shell activo.
+#
+# Cuando Noctalia se apague, el punto 3 simplemente deja de matchear y no molesta.
+wallpaper_actual() {
+  local f="$HOME/.local/state/wallpaper"
+  if [[ -r $f ]]; then
+    head -1 "$f"
+    return 0
+  fi
+
+  local from_awww
+  from_awww=$(awww query 2>/dev/null | sed -n 's/.*currently displaying: image: //p' | head -1)
+  if [[ -n $from_awww ]]; then
+    printf '%s\n' "$from_awww"
+    return 0
+  fi
+
+  local n="$HOME/.local/state/noctalia/settings.toml"
+  [[ -r $n ]] || return 1
+  sed -n '/^\[wallpaper\]/,/^\[[a-z]/p' "$n" |
+    sed -n '/\[wallpaper\.last\]/,/^$/p' |
+    sed -n 's/^[[:space:]]*path[[:space:]]*=[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' |
+    head -1
+}
+
+WALLPAPER="${1:-$(wallpaper_actual || true)}"
+
+if [[ -z ${WALLPAPER:-} || ! -r $WALLPAPER ]]; then
+  echo "theme-matugen: no encuentro un wallpaper legible (pasá uno como argumento)" >&2
+  exit 1
+fi
+
+mkdir -p "$HOME/.config/themes/matugen"
+
+matugen image "$WALLPAPER" --prefer "$PREFER" --quiet
+
+# Si el paquete de íconos activo tiene variantes de color (Tela-circle, Papirus),
+# re-resuelve la más cercana al `colors.primary` que acaba de calcular matugen.
+# `icon-set --resync` es un no-op si el paquete activo no tiene variantes, y la
+# parte cara de Papirus corre en el fondo adentro del propio icon-set — no agrega
+# lag acá. Ver ~/.local/bin/icon-set.
+icon-set --resync
+
+# theme-set hace su propio reinicio DESPUÉS de reapuntar los symlinks, que es el momento
+# correcto cuando además se cambia de tema. Si nos llamó él, no reiniciamos acá: sería un
+# reinicio de más y con el symlink todavía viejo.
+if [[ -z ${THEME_SET_RUNNING:-} ]]; then
+  theme-reload
+fi
+
+echo "theme-matugen: generado desde $WALLPAPER (--prefer $PREFER)"

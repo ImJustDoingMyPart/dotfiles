@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Repinta el wallpaper en cualquier pantalla que se conecte.
+#
+# EL PROBLEMA: awww crea la capa en el output nuevo pero NO le pinta nada — queda en
+# `color: 000000`, que es el gris que se ve al enchufar un segundo monitor. Su cache es
+# POR OUTPUT (de ahí la opción `--no-cache` de awww-daemon), así que una pantalla que nunca
+# tuvo fondo no tiene nada que restaurar.
+#
+# POR QUÉ UN VIGILANTE Y NO UN EVENTO: niri 26.04 **no emite ningún evento de output**.
+# Su event-stream solo tiene WorkspacesChanged, WindowsChanged, KeyboardLayoutsChanged,
+# OverviewOpenedOrClosed y ConfigLoaded (verificado sobre el binario). Pero conectar una
+# pantalla SIEMPRE cambia el set de workspaces, porque en niri los workspaces son por
+# output — así que WorkspacesChanged sirve de disparador confiable.
+#
+# QUÉ SE CHEQUEA: no se compara la lista de outputs, se mira el SÍNTOMA directo. `awww query`
+# dice, por output, si está mostrando `image:` o `color:`. Cualquier output en `color:` es
+# uno sin fondo, sin importar por qué. Eso cubre también el caso de que awww se reinicie o
+# de que una pantalla vuelva de suspensión sin restaurar.
+#
+# Deliberadamente NO llama a `wallpaper-set`: ese script además regenera el tema con matugen
+# y reescribe la copia del lock, que en un simple enchufar-monitor es trabajo de más y
+# produce un parpadeo de recarga de tema. Acá solo se repinta.
+
+set -uo pipefail
+
+ESTADO="$HOME/.local/state/wallpaper"
+BACKDROP_IMG="$HOME/.local/state/wallpaper-backdrop.png"
+
+# Sin transición: el output recién aparece, no hay nada de dónde hacer un fundido, y una
+# transición sobre una pantalla que se acaba de encender se ve como un parpadeo.
+TRANSICION="none"
+
+hay_output_sin_fondo() {
+  awww query 2>/dev/null | grep -q "currently displaying: color:"
+}
+
+repintar() {
+  local img
+  img=$(head -1 "$ESTADO" 2>/dev/null)
+  [[ -n $img && -r $img ]] || return 0
+
+  awww img "$img" --transition-type "$TRANSICION" >/dev/null 2>&1
+
+  # El backdrop del overview es un segundo daemon con namespace propio y hay que repintarlo
+  # igual, o el overview queda gris en la pantalla nueva.
+  #
+  # `--namespace=-backdrop` CON EL IGUAL: el namespace empieza con guion y el parser de awww
+  # lo tomaría como una opción corta si fuera separado por espacio.
+  if [[ -r $BACKDROP_IMG ]] && awww query --namespace=-backdrop >/dev/null 2>&1; then
+    awww img "$BACKDROP_IMG" --namespace=-backdrop --transition-type "$TRANSICION" >/dev/null 2>&1
+  fi
+
+  echo "wallpaper-outputs-watch: repintado en $(awww query 2>/dev/null | grep -c .) output(s)"
+}
+
+# Al arrancar, por si el servicio se levanta después de que ya haya una pantalla sin fondo.
+hay_output_sin_fondo && repintar
+
+# `niri msg event-stream` es un flujo que no termina. Si niri se reinicia, el read falla y
+# el servicio sale; systemd lo vuelve a levantar (Restart=on-failure).
+niri msg event-stream 2>/dev/null | while read -r linea; do
+  case "$linea" in
+    *"Workspaces changed"*)
+      # Debounce: al conectar una pantalla llegan varios eventos seguidos y awww necesita un
+      # instante para crear la capa nueva. Repintar antes de que exista no hace nada.
+      sleep 1
+      hay_output_sin_fondo && repintar
+      ;;
+  esac
+done

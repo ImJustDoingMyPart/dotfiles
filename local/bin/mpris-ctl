@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Control del reproductor MPRIS activo, por D-Bus.
+#
+# Uso: mpris-ctl play-pause | next | previous
+#
+# Por qué no `playerctl`: NO está instalado en esta máquina (verificado el 2026-08-14 con
+# `command -v` y `pacman -Qo`). Lo que sí corre es `playerctld`, el daemon que mantiene el
+# foco sobre el último reproductor usado y lo expone como un MPRIS más en el bus. Pegarle
+# a él evita tener que elegir entre varios reproductores abiertos.
+#
+# Existe para los clicks del módulo `music` de Ironbar: al deshabilitar su popup, el
+# módulo se queda sin acciones propias, y estas son las tres que traía por defecto el
+# módulo `mpris` de Waybar (izquierdo / medio / derecho).
+
+set -euo pipefail
+
+DEST=org.mpris.MediaPlayer2.playerctld
+PATH_OBJ=/org/mpris/MediaPlayer2
+IFACE=org.mpris.MediaPlayer2.Player
+
+case "${1:-}" in
+  play-pause) METODO=PlayPause ;;
+  next)       METODO=Next ;;
+  previous)   METODO=Previous ;;
+  *)
+    echo "uso: $(basename "$0") play-pause | next | previous" >&2
+    exit 1
+    ;;
+esac
+
+# Si no hay ningún reproductor, playerctld responde con error: se descarta en silencio
+# para que un click en la barra nunca escupa nada a la consola.
+busctl --user call "$DEST" "$PATH_OBJ" "$IFACE" "$METODO" >/dev/null 2>&1 || true

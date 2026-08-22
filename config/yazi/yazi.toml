@@ -1,0 +1,19 @@
+# Yazi NO lee los .desktop del sistema — por eso Nautilus ofrece Video Trimmer y Yazi no.
+# Su menú de "abrir con" (tecla `O`) sale exclusivamente de los openers de acá.
+# Doc: https://yazi-rs.github.io/docs/configuration/yazi
+
+[opener]
+# %s1 = solo el primer archivo seleccionado (Video Trimmer abre de a uno).
+# orphan = sigue vivo si cierro Yazi, igual que el opener `play` del preset.
+trim = [
+	{ run = "video-trimmer %s1", desc = "Recortar (Video Trimmer)", for = "unix", orphan = true },
+]
+
+# `prepend_rules` se inserta ANTES de las reglas del preset y Yazi usa la primera
+# coincidencia, así que esta pisa a la de `{audio,video}/*` para los videos.
+# Orden de `use` = orden del menú: el primero es el que abre con `o`/Enter, así que
+# `play` queda de default y Video Trimmer aparece como segunda opción en `O`.
+[open]
+prepend_rules = [
+	{ mime = "video/*", use = [ "play", "trim", "reveal" ] },
+]

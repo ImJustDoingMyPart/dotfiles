@@ -1,0 +1,53 @@
+# Menú de sesión — reemplaza el power menu de Noctalia (Mod+X).
+#
+# Menú estático, así que va en TOML y no en Lua: la lista no se descubre en runtime.
+# Formato verificado con `elephant generate doc` (provider "Elephant Menus").
+#
+# Se llega por tres vías: Mod+X, el widget del extremo derecho de la barra
+# (custom/session en ~/.config/waybar/config.jsonc) y la búsqueda global.
+#
+# NO se lista en el providerlist de Mod+Comma (hide_from_providerlist, campo documentado
+# en `elephant generate doc` -> Menu). Con el widget en la barra, aparecer también en el
+# índice general era la tercera puerta a lo mismo; el menú sigue existiendo entero.
+
+name = "session"
+name_pretty = "Sesión"
+description = "Bloquear, cerrar sesión, suspender, apagar"
+icon = "system-shutdown"
+fixed_order = true
+hide_from_providerlist = true
+
+# Va PRIMERA y es la única entrada no destructiva del menú: es la que más se usa y la que
+# no cuesta nada equivocarse. El locker es hyprlock desde el 2026-08-13 (antes swaylock), y
+# `lock` es el wrapper que garantiza la copia del wallpaper de fondo — ver ~/.local/bin/lock.
+[[entries]]
+text = "Bloquear pantalla"
+keywords = ["lock", "bloquear", "pantalla", "screen", "hyprlock"]
+icon = "system-lock-screen"
+actions = { "lock" = "lock" }
+
+[[entries]]
+text = "Suspender"
+keywords = ["suspend", "sleep", "dormir", "suspender"]
+icon = "system-suspend"
+actions = { "suspend" = "systemctl suspend" }
+
+[[entries]]
+text = "Cerrar sesión"
+keywords = ["logout", "salir", "quit", "cerrar"]
+icon = "system-log-out"
+# --skip-confirmation porque la confirmación ya la da el propio menú: elegir la entrada
+# es un acto deliberado, y el prompt de niri no es visible desde el launcher.
+actions = { "logout" = "niri msg action quit --skip-confirmation" }
+
+[[entries]]
+text = "Reiniciar"
+keywords = ["reboot", "restart", "reiniciar"]
+icon = "system-reboot"
+actions = { "restart" = "systemctl reboot" }
+
+[[entries]]
+text = "Apagar"
+keywords = ["poweroff", "shutdown", "apagar"]
+icon = "system-shutdown"
+actions = { "poweroff" = "systemctl poweroff" }

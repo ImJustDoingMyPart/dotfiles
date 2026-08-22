@@ -1,0 +1,408 @@
+#!/usr/bin/env python3
+"""Pronóstico del tiempo para la barra y para el menú de walker.
+
+Fuente: **Open-Meteo** (https://api.open-meteo.com/v1/forecast). Se eligió sobre wttr.in y
+sobre OpenWeatherMap por el mismo criterio que el calendario: no necesita API key, ni
+cuenta, ni paquete nuevo — solo curl y una URL. Devuelve en una sola llamada el pronóstico
+por hora y el diario con máxima y mínima, que es lo que muestran los dos consumidores.
+
+Los nombres de parámetro (`latitude`, `longitude`, `hourly`, `daily`, `timezone`,
+`forecast_days`) y las variables (`weather_code`, `temperature_2m`, `temperature_2m_max`,
+`temperature_2m_min`, `is_day`) salen de la doc oficial en https://open-meteo.com/en/docs y
+están probados contra la API real.
+
+> Se pide `hourly` y NO `current` a propósito. Con un cache de 6 horas, un bloque `current`
+> quedaría hasta 6 horas viejo y la barra mostraría "la temperatura actual" de esta mañana a
+> la noche. El array por hora, en cambio, se indexa por la hora local del momento: **una sola
+> descarga cada 6 horas alimenta un valor que se refresca solo, sin volver a la red.** Las
+> 168 entradas (7 días) pesan ~6 KB.
+
+La ubicación NO se geolocaliza por IP: sale de un archivo de config, una línea con
+
+    <lat> <lon> <nombre>          ~/.config/weather-location
+
+Tres modos de salida:
+
+    weather-forecast --waybar     JSON para el módulo `weather` de la barra
+    weather-forecast --menu       TSV para `menus/weather.lua`
+    weather-forecast --pad        el MISMO texto de la barra, para el espejo invisible que
+                                  centra el reloj (ver abajo)
+
+──────────────────────────────────────────────────────────────────────────────────────────
+EL MODO --pad, O CÓMO SE CLAVA EL ':' DEL RELOJ EN EL CENTRO DE LA PANTALLA
+──────────────────────────────────────────────────────────────────────────────────────────
+
+La barra centra la ZONA `center` como un todo, no un módulo en particular. Con el bloque
+`fecha · hora · clima`, eso deja el reloj donde caiga: si el clima es más ancho que la
+fecha, el reloj se corre a la izquierda.
+
+La solución NO es aritmética, es **simetría por espejos**. La zona lleva cinco módulos:
+
+    [clima invisible] [fecha] [hora] [clima] [fecha invisible]
+     └──── L = clima + fecha ────┘    └──── R = clima + fecha ────┘
+
+L y R son los mismos dos anchos en distinto orden, así que miden igual **por
+construcción** — no hay ningún número que se pueda desincronizar. El ':' queda en el medio
+de `hora`, y `hora` queda en el medio de la zona, y la zona en el medio de la pantalla.
+
+Este modo existe para el primero de esos espejos: imprime **exactamente el mismo texto**
+que va a `--waybar`, y el CSS lo pinta con `color: transparent` (ver `#weather-pad` en
+`style.css`). Mismo script, mismo cache, misma rama de código: no hay forma de que el
+espejo mida distinto que el original. El otro espejo es un segundo módulo `clock` con el
+mismo `format` que la fecha, también transparente.
+
+Que el ':' caiga en el medio del reloj no es casualidad: su formato es `·  %H:%M  ·`,
+11 celdas simétricas alrededor del ':' (celda 5 de 0..10). Ésa es la única suposición que
+queda en pie; si se toca ese formato, el ':' se corre.
+
+> ANTES SE HACÍA CON ARITMÉTICA, y estaba mal por dos motivos, los dos medidos sobre
+> captura el 2026-08-16:
+>
+>  1. El relleno se emitía en espacios duros U+00A0, y **Ironbar hace `.trim()` del stdout
+>     del módulo `script`** (`src/script.rs`, v0.19.0). El `trim` de Rust usa la propiedad
+>     Unicode White_Space, que **incluye** U+00A0: los 17 espacios del relleno se
+>     evaporaban antes de llegar al label. Waybar no los recortaba, de ahí que el mismo
+>     truco funcionara allá y no acá.
+>  2. La premisa "la barra es una grilla de celdas de 8 px" era falsa. JetBrains Mono
+>     avanza **0,6 em**, o sea 8,4 px a 14 px de cuerpo, y GTK redondea el ancho del label
+>     una sola vez al final. La cuenta se iba 0,4 px por carácter, y como el clima cambia
+>     de largo con la descripción, el ':' se movía cada vez que cambiaba el tiempo.
+>
+> Lo segundo explica también el `margin-left: 34px` que había en `#center-pad`: era el
+> error acumulado de una descripción concreta, convertido en constante.
+"""
+
+import json
+import math
+import pathlib
+import subprocess
+import sys
+import time
+from datetime import date, datetime
+
+CONFIG = pathlib.Path.home() / ".config" / "weather-location"
+CACHE = pathlib.Path.home() / ".cache" / "weather.json"
+
+# 6 horas. Lo pidió Roberto explícitamente para no desperdiciar recursos, y es viable
+# justamente porque lo que se muestra sale del array `hourly`: la red se toca 4 veces por
+# día, pero el valor en pantalla cambia cada hora igual. Los módulos de waybar corren el
+# script cada 15 minutos, y esas corridas NO salen a la red — leen este cache.
+CACHE_TTL = 6 * 3600
+DIAS = 7                     # hoy + 6
+
+API = "https://api.open-meteo.com/v1/forecast"
+
+
+# ── El espacio de 10 px que separa el glifo del texto ──────────────────────────────────
+#
+# Es un espacio común renderizado a 12 pt en vez de los 10,5 pt que equivalen a los 14 px de
+# la barra. Waybar pasa Pango markup al label sin tocarlo (`escape` es false por defecto,
+# ver `man 5 waybar-custom`).
+#
+# POR QUÉ HACE FALTA: todo el set de glifos de clima dibuja 13 px de tinta dentro de una
+# celda de 8, o sea que se desborda 2,5 px hacia el texto. Con un espacio normal el hueco
+# visible queda en 4 px, contra los 6 px de la RAM y la CPU —cuyos glifos miden 11-12 px— y
+# se lee pegado. Con éste: 6 px clavados, paridad exacta con el hardware.
+#
+# El 12288 (= 12 pt × 1024) no se dedujo, se MIDIÓ con Pango barriendo tamaños contra el
+# hueco de tinta resultante: 11520 daba 5 px, 12288 da 6, 13440 daba 7.
+#
+# Alternativas descartadas, las dos vistas en pantalla:
+#   · dos espacios comunes → hueco de 12 px, el DOBLE que el hardware. Se veía suelto.
+#   · `letter_spacing`     → Pango lo reparte mitad antes y mitad después de cada carácter,
+#                            así que sobre un glifo solo agrega 1 px como mucho.
+ESPACIO = '<span size="12288"> </span>'
+
+DIAS_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+# Códigos WMO (tabla "WMO Weather interpretation codes (WW)" de la doc de Open-Meteo).
+#
+#   código -> (descripción, glifo día, glifo noche, ícono día, ícono noche)
+#
+# Los GLIFOS son Nerd Font (nf-md-*), verificados contra el charset de JetBrainsMono Nerd
+# Font antes de escribirlos:
+#
+#   fc-list --format='%{charset}\n' "JetBrainsMono Nerd Font"
+#
+# Van monocromos a propósito: en la barra tienen que leerse como el 󰕿 del volumen y el
+# 󰍛 de la RAM, no como un emoji a color que rompería la línea.
+#
+# > El sol despejado es **U+F05A8 (white-balance-sunny)** y NO el U+F0599 (weather-sunny)
+# > que parecería el obvio. Motivo medido: `weather-sunny` dibuja 10 px de tinta fina y
+# > aireada, contra los 11-13 px densos de la RAM (11×12), la CPU (11×10) y el ícono de
+# > Arch (12×12). Aunque el hueco al texto siguiente sea el mismo en píxeles, el blanco
+# > alrededor de un glifo chico se lee como un hueco mayor — que es exactamente lo que
+# > Roberto detectó a ojo. `white-balance-sunny` mide 13×13 y empareja al resto. Los demás
+# > glifos del set ya miden 13 y no hacían falta tocarlos.
+#
+# Los ÍCONOS son de Papirus-Dark `status/`: redondos, rellenos y a color, del mismo estilo
+# que `office-calendar` de la agenda. Verificados renderizándolos con GtkIconTheme de GTK4,
+# que es el motor que usa walker.
+CODIGOS = {
+    0:  ("Despejado",                    "󰖨", "󰖔", "weather-clear",             "weather-clear-night"),
+    1:  ("Mayormente despejado",         "󰖕", "󰼱", "weather-few-clouds",        "weather-few-clouds-night"),
+    2:  ("Parcialmente nublado",         "󰖕", "󰼱", "weather-clouds",            "weather-clouds-night"),
+    3:  ("Nublado",                      "󰖐", "󰖐", "weather-overcast",          "weather-overcast"),
+    45: ("Niebla",                       "󰖑", "󰖑", "weather-fog",               "weather-fog"),
+    48: ("Niebla con escarcha",          "󰖑", "󰖑", "weather-fog",               "weather-fog"),
+    51: ("Llovizna leve",                "󰖗", "󰖗", "weather-showers-scattered", "weather-showers-scattered"),
+    53: ("Llovizna",                     "󰖗", "󰖗", "weather-showers-scattered", "weather-showers-scattered"),
+    55: ("Llovizna intensa",             "󰖗", "󰖗", "weather-showers",           "weather-showers"),
+    56: ("Llovizna helada",              "󰙿", "󰙿", "weather-freezing-rain",     "weather-freezing-rain"),
+    57: ("Llovizna helada intensa",      "󰙿", "󰙿", "weather-freezing-rain",     "weather-freezing-rain"),
+    61: ("Lluvia leve",                  "󰖗", "󰖗", "weather-showers-scattered", "weather-showers-scattered"),
+    63: ("Lluvia",                       "󰖖", "󰖖", "weather-showers",           "weather-showers"),
+    65: ("Lluvia intensa",               "󰖖", "󰖖", "weather-showers",           "weather-showers"),
+    66: ("Lluvia helada",                "󰙿", "󰙿", "weather-freezing-rain",     "weather-freezing-rain"),
+    67: ("Lluvia helada intensa",        "󰙿", "󰙿", "weather-freezing-rain",     "weather-freezing-rain"),
+    71: ("Nevada leve",                  "󰖘", "󰖘", "weather-snow-scattered",    "weather-snow-scattered"),
+    73: ("Nevada",                       "󰖘", "󰖘", "weather-snow",              "weather-snow"),
+    75: ("Nevada intensa",               "󰖘", "󰖘", "weather-snow",              "weather-snow"),
+    77: ("Granos de nieve",              "󰖘", "󰖘", "weather-snow",              "weather-snow"),
+    80: ("Chaparrones leves",            "󰖗", "󰖗", "weather-showers-scattered", "weather-showers-scattered"),
+    81: ("Chaparrones",                  "󰖖", "󰖖", "weather-showers",           "weather-showers"),
+    82: ("Chaparrones fuertes",          "󰖖", "󰖖", "weather-showers",           "weather-showers"),
+    85: ("Chubascos de nieve",           "󰖘", "󰖘", "weather-snow-scattered",    "weather-snow-scattered"),
+    86: ("Chubascos de nieve fuertes",   "󰖘", "󰖘", "weather-snow",              "weather-snow"),
+    95: ("Tormenta",                     "󰖓", "󰖓", "weather-storm",             "weather-storm"),
+    96: ("Tormenta con granizo",         "󰙾", "󰙾", "weather-hail",              "weather-hail"),
+    99: ("Tormenta con granizo fuerte",  "󰙾", "󰙾", "weather-hail",              "weather-hail"),
+}
+
+# Solo para un código que Open-Meteo agregue y esta tabla todavía no tenga. El glifo es
+# U+F0F2F (nf-md-weather-cloudy-alert), también verificado contra el charset.
+DESCONOCIDO = ("Sin datos", "󰼯", "󰼯", "weather-none-available", "weather-none-available")
+
+
+def ubicacion():
+    """(lat, lon, nombre) del archivo de config, o None si no está."""
+    if not CONFIG.is_file():
+        return None
+    for linea in CONFIG.read_text(encoding="utf-8").splitlines():
+        linea = linea.strip()
+        if not linea or linea.startswith("#"):
+            continue
+        partes = linea.split(None, 2)
+        if len(partes) < 2:
+            continue
+        try:
+            return float(partes[0]), float(partes[1]), (partes[2] if len(partes) > 2 else "")
+        except ValueError:
+            continue
+    return None
+
+
+def datos(lat, lon):
+    """El JSON de Open-Meteo, del cache si está fresco."""
+    if CACHE.is_file() and time.time() - CACHE.stat().st_mtime < CACHE_TTL:
+        try:
+            return json.loads(CACHE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    url = (f"{API}?latitude={lat}&longitude={lon}"
+           "&hourly=temperature_2m,weather_code,is_day"
+           "&daily=weather_code,temperature_2m_max,temperature_2m_min"
+           f"&timezone=auto&forecast_days={DIAS}")
+
+    try:
+        # --max-time, igual que en calendar-events: es preferible mostrar el cache viejo
+        # (o nada) antes que colgar la barra o el launcher esperando a la red.
+        out = subprocess.run(["curl", "-fsSL", "--max-time", "8", url],
+                             capture_output=True, text=True, timeout=12)
+        if out.returncode == 0 and out.stdout:
+            crudo = json.loads(out.stdout)
+            if "daily" in crudo and "hourly" in crudo:
+                CACHE.parent.mkdir(parents=True, exist_ok=True)
+                # Escritura ATÓMICA. Importa acá y no en la versión anterior: ahora hay dos
+                # módulos de waybar (`custom/weather` y `custom/center-pad`) corriendo este
+                # script casi al mismo tiempo, y si uno leyera un archivo a medio escribir
+                # calcularía un relleno que no corresponde al texto del otro — o sea, el
+                # reloj descentrado hasta el siguiente tick.
+                tmp = CACHE.with_suffix(".json.tmp")
+                tmp.write_text(out.stdout, encoding="utf-8")
+                tmp.replace(CACHE)
+                return crudo
+    except Exception:
+        pass
+
+    if CACHE.is_file():
+        try:
+            return json.loads(CACHE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return None
+
+
+def temp(valor) -> str:
+    """Redondeo al entero MÁS CERCANO, con el medio hacia arriba.
+
+    No se usa round(): Python redondea al par (round(12.5) == 12), y una máxima de 12,5
+    que se muestra como 12 mientras el resto del mundo dice 13 parece un error del widget.
+    """
+    return str(int(math.floor(float(valor) + 0.5)))
+
+
+def clave(codigo, de_dia=True):
+    d, gd, gn, id_, in_ = CODIGOS.get(codigo, DESCONOCIDO)
+    return d, (gd if de_dia else gn), (id_ if de_dia else in_)
+
+
+def hora_actual(info):
+    """Índice del bloque horario que corresponde a AHORA, o None.
+
+    Los tiempos vienen en hora local (`timezone=auto`), sin offset, así que se comparan como
+    texto contra el 'YYYY-MM-DDTHH' de este momento. Es más robusto que contar posiciones
+    desde el inicio del array: no supone que el pronóstico arranque a medianoche ni que no
+    falte alguna hora.
+    """
+    horas = info.get("hourly", {}).get("time", [])
+    ahora = datetime.now().strftime("%Y-%m-%dT%H")
+    for i, t in enumerate(horas):
+        if t[:13] == ahora:
+            return i
+    return 0 if horas else None
+
+
+def texto_barra(info):
+    """El texto del módulo del clima. Nunca devuelve vacío.
+
+    Sin datos devuelve un placeholder en lugar de nada, y NO es cosmético: el centrado del
+    reloj se apoya en que este texto y su espejo invisible midan lo mismo, y un módulo que
+    desaparece de un lado y no del otro rompería la simetría. El widget siempre ocupa
+    algo, también con la red caída.
+    """
+    i = hora_actual(info) if info else None
+    if i is None:
+        return f"{DESCONOCIDO[1]}{ESPACIO}Sin datos"
+
+    por_hora = info["hourly"]
+    de_dia = por_hora["is_day"][i] == 1
+    desc, glifo, _ = clave(por_hora["weather_code"][i], de_dia)
+    ahora = temp(por_hora["temperature_2m"][i])
+
+    # Solo la temperatura ACTUAL. La máxima y la mínima salieron de la barra el 2026-08-07
+    # (decisión de Roberto): están a un hover en el tooltip y en la fila "Hoy" del menú de
+    # la semana, y en la barra competían con el dato que de verdad se mira al pasar.
+    #
+    # Entre el glifo y la descripción va ESPACIO, el espacio de 10 px, no uno normal. El
+    # motivo está arriba, donde se define.
+    resto = f"{desc}, {ahora}°C"
+
+    return f"{glifo}{ESPACIO}{resto}"
+
+
+def modo_waybar(info, nombre) -> int:
+    texto = texto_barra(info)
+
+    i = hora_actual(info) if info else None
+    if i is None:
+        print(json.dumps({
+            "text": texto,
+            "tooltip": "Sin datos del clima\n"
+                       "Revisar la red, o que exista ~/.config/weather-location",
+            "class": "weather",
+        }, ensure_ascii=False))
+        return 0
+
+    por_hora = info["hourly"]
+    diario = info["daily"]
+    desc, _, _ = clave(por_hora["weather_code"][i], por_hora["is_day"][i] == 1)
+
+    tip = [f"{nombre} · {desc}" if nombre else desc,
+           f"Ahora {temp(por_hora['temperature_2m'][i])}°C"
+           f" · hoy máx {temp(diario['temperature_2m_max'][0])}°C"
+           f", mín {temp(diario['temperature_2m_min'][0])}°C"]
+    # La hora del BLOQUE y la de la descarga son dos cosas distintas, y con un cache de 6
+    # horas conviene ver las dos: el bloque dice a qué hora corresponde el número, y la
+    # descarga, qué tan vieja es la predicción que lo produjo.
+    tip.append(f"Pronóstico de las {por_hora['time'][i][11:16]}"
+               + (f" · bajado {time.strftime('%H:%M', time.localtime(CACHE.stat().st_mtime))}"
+                  if CACHE.is_file() else ""))
+
+    print(json.dumps({
+        "text": texto,
+        "tooltip": "\n".join(tip),
+        "class": "weather",
+    }, ensure_ascii=False))
+    return 0
+
+
+def modo_pad(info) -> int:
+    """El espejo invisible del clima. Ver el docstring de arriba.
+
+    Es literalmente `texto_barra`: el mismo texto, misma llamada, mismo cache. Lo que lo
+    hace invisible es el CSS (`#weather-pad { color: transparent }`), no este script — a
+    propósito, porque cualquier transformación del texto acá abriría la puerta a que el
+    espejo mida distinto del original, que es exactamente lo que hay que evitar.
+    """
+    print(texto_barra(info))
+    return 0
+
+
+def etiqueta_dia(iso: str, hoy: date) -> str:
+    d = date.fromisoformat(iso)
+    dias = (d - hoy).days
+    if dias == 0:
+        return "Hoy"
+    if dias == 1:
+        return "Mañana"
+    return f"{DIAS_ES[d.weekday()].capitalize()} {d.day}"
+
+
+def modo_menu(info, nombre) -> int:
+    """TSV: etiqueta <TAB> descripción y temperaturas <TAB> ícono <TAB> 'hoy' o vacío."""
+    if not info:
+        return 0
+
+    diario = info["daily"]
+    hoy = date.today()
+
+    for i, iso in enumerate(diario["time"][:DIAS]):
+        # Para los días del pronóstico SIEMPRE la variante de día: una fila que resume
+        # 24 horas con una luna al lado no significa nada. La de noche solo tiene sentido en
+        # la barra, que muestra el estado de este momento.
+        desc, _, icono = clave(diario["weather_code"][i], de_dia=True)
+        maxima = temp(diario["temperature_2m_max"][i])
+        minima = temp(diario["temperature_2m_min"][i])
+
+        campos = [
+            etiqueta_dia(iso, hoy),
+            f"{desc}, {maxima}°C / {minima}°C",
+            icono,
+            "hoy" if i == 0 else "",
+        ]
+        print("\t".join(campos))
+
+    return 0
+
+
+def main() -> int:
+    modo = sys.argv[1] if len(sys.argv) > 1 else ""
+    if modo not in ("--waybar", "--menu", "--pad"):
+        print(f"uso: {sys.argv[0]} --waybar | --menu | --pad", file=sys.stderr)
+        return 2
+
+    lugar = ubicacion()
+    info = None
+    nombre = ""
+    if lugar is not None:
+        lat, lon, nombre = lugar
+        info = datos(lat, lon)
+
+    if modo == "--waybar":
+        return modo_waybar(info, nombre)
+    if modo == "--pad":
+        return modo_pad(info)
+    return modo_menu(info, nombre)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        # Ni la barra ni el menú se rompen porque el clima falle.
+        print("")
+        raise SystemExit(0)

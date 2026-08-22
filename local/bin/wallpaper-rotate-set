@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Fija cada cuántas horas rota solo el wallpaper.
+#
+# Uso:  wallpaper-rotate-set <horas>     p. ej. 3, 6, 12
+#       wallpaper-rotate-set off        deja de rotar
+#       wallpaper-rotate-set --actual   imprime el valor vigente ("off" o el número)
+#
+# El intervalo vive en un archivo de estado y NO en el timer. El timer tiene un tic FIJO de
+# una hora y es `wallpaper-rotate` el que decide si toca cambiar (ver ese script). Así,
+# cambiar de 12 h a 3 h desde el menú es escribir un archivo: nada de reescribir la unidad,
+# `daemon-reload` ni reiniciar el timer desde una acción de walker.
+#
+# El precio es la granularidad: con "3 h" el cambio cae entre las 3 y las 4 horas. Para un
+# fondo de escritorio no importa.
+
+set -euo pipefail
+
+STATE_FILE="$HOME/.local/state/wallpaper-rotate"
+TIMER="wallpaper-rotate.timer"
+
+actual() {
+  if [[ -r $STATE_FILE ]]; then
+    local v
+    v=$(<"$STATE_FILE")
+    [[ $v =~ ^[0-9]+$ ]] && printf '%s\n' "$v" && return 0
+  fi
+  printf 'off\n'
+}
+
+if [[ ${1:-} == "--actual" ]]; then
+  actual
+  exit 0
+fi
+
+valor="${1:-}"
+
+case "$valor" in
+off | OFF | 0)
+  rm -f "$STATE_FILE"
+  # El timer se apaga además de vaciar el estado: dejarlo corriendo para que despierte cada
+  # hora y salga en seguida sería mentirle a `systemctl --user list-timers`.
+  systemctl --user disable --now "$TIMER" >/dev/null 2>&1 || true
+  echo "wallpaper-rotate-set: off"
+  ;;
+[1-9] | [1-9][0-9]*)
+  mkdir -p "$(dirname "$STATE_FILE")"
+  printf '%s\n' "$valor" > "$STATE_FILE"
+  systemctl --user enable --now "$TIMER" >/dev/null 2>&1 || {
+    echo "wallpaper-rotate-set: no se pudo habilitar $TIMER" >&2
+    exit 1
+  }
+  echo "wallpaper-rotate-set: cada $valor h"
+  ;;
+*)
+  echo "wallpaper-rotate-set: pasá un número de horas o 'off'" >&2
+  exit 1
+  ;;
+esac

@@ -1,0 +1,167 @@
+{
+  "name": "main",
+  "position": "top",
+  "layer": "top",
+  "height": 24,
+  "popup_gap": 4,
+  "start": [
+    {
+      "type": "label",
+      "name": "menu",
+      "label": "󰣇",
+      "tooltip": "Menú del sistema",
+      "on_click_left": "walker --provider menus:system",
+      "on_click_right": "walker --height 980 --width 980 --provider menus:keybinds",
+      "on_click_middle": "niri msg action toggle-overview"
+    },
+    {
+      "type": "workspaces",
+      "name": "workspaces",
+      "sort": "index"
+    }
+  ],
+  "center": [
+    {
+      "type": "script",
+      "name": "weather-pad",
+      "mode": "poll",
+      "interval": 900000,
+      "cmd": "weather-forecast --pad"
+    },
+    {
+      "type": "clock",
+      "name": "clock-date",
+      "format": "%a %d %b",
+      "on_click_right": "walker --provider menus:calendar",
+      "disable_popup": true,
+      "on_click_left": "walker --provider menus:calendar"
+    },
+    {
+      "type": "clock",
+      "name": "clock-time",
+      "format": "·  %H:%M  ·",
+      "disable_popup": true
+    },
+    {
+      "type": "script",
+      "name": "weather",
+      "mode": "poll",
+      "interval": 900000,
+      "cmd": "weather-forecast --waybar | jq -r .text",
+      "on_click_right": "walker --provider menus:weather",
+      "on_click_left": "walker --provider menus:weather"
+    },
+    {
+      "type": "clock",
+      "name": "date-pad",
+      "format": "%a %d %b",
+      "disable_popup": true
+    }
+  ],
+  "end": [
+    {
+      "type": "music",
+      "name": "music",
+      "player_type": "mpris",
+      "format": "{title}",
+      "show_status_icon": true,
+      "icons": {
+        "play": "▶",
+        "pause": "⏸"
+      },
+      "disable_popup": true,
+      "on_click_left": "mpris-ctl play-pause",
+      "on_click_middle": "mpris-ctl previous",
+      "on_click_right": "mpris-ctl next"
+    },
+    {
+      "type": "label",
+      "name": "tray-arrow",
+      "label": "󰅁",
+      "tooltip": "Bandeja del sistema",
+      "on_click_left": "ironbar-tray-toggle"
+    },
+    {
+      "type": "tray",
+      "name": "tray",
+      "icon_size": 14,
+      "prefer_theme_icons": true,
+      "show_if": "#tray_open",
+      "transition_type": "slide_end",
+      "transition_duration": 300
+    },
+    {
+      "type": "volume",
+      "name": "volume",
+      "format": "{icon} {percentage}%",
+      "mute_format": "󰝟",
+      "show_sources": false,
+      "max_volume": 100,
+      "icons": {
+        "volume": "󰕾",
+        "muted": "󰝟"
+      },
+      "on_click_right": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+      "disable_popup": true,
+      "on_click_left": "walker --provider wireplumber",
+      "on_click_middle": "kitty --class wiremix wiremix"
+    },
+    {
+      "type": "script",
+      "name": "mouse",
+      "mode": "poll",
+      "interval": 60000,
+      "cmd": "ironbar-mouse",
+      "show_if": "ironbar-mouse --check"
+    },
+    {
+      "type": "sys_info",
+      "name": "memory",
+      "format": [
+        "󰍛 {memory_percent: <1.0}%"
+      ],
+      "interval": {
+        "memory": 5
+      },
+      "on_click_left": "kitty --class btop btop"
+    },
+    {
+      "type": "script",
+      "name": "gpu",
+      "mode": "poll",
+      "interval": 5000,
+      "cmd": "waybar-gpu | jq -r '\"󰢮 \" + .text'",
+      "on_click_left": "kitty --class btop btop"
+    },
+    {
+      "type": "sys_info",
+      "name": "cpu",
+      "format": [
+        "󰘚 {cpu_percent: <1.0}%"
+      ],
+      "interval": {
+        "cpu": 5
+      },
+      "on_click_left": "kitty --class btop btop"
+    },
+    {
+      "type": "script",
+      "name": "notifications",
+      "mode": "poll",
+      "interval": 3000,
+      "cmd": "ironbar-mako",
+      "on_click_left": "walker --provider menus:notifications",
+      "on_click_right": "makoctl mode -t do-not-disturb"
+    },
+    {
+      "type": "label",
+      "name": "session",
+      "label": "󰐥",
+      "tooltip": "Sesión",
+      "on_click_left": "walker --provider menus:session"
+    }
+  ],
+  "ironvar_defaults": {
+    "tray_open": "false"
+  }
+}

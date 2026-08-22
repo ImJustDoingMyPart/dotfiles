@@ -1,0 +1,57 @@
+# mako 1.11.0 — daemon de notificaciones.
+#
+# Base: nickjj/dotfriedrice (.config/mako/config), que es el mismo modelo estético que
+# sigue el resto del sistema. Reemplaza a swaync, que desentonaba con lo demás.
+#
+# Toda clave verificada contra `man 5 mako` de la versión instalada.
+#
+# Lo que se pierde contra swaync y cómo se reemplaza: mako NO tiene panel de centro de
+# notificaciones. El historial pasa a ser un menú de walker que lee `makoctl history`
+# (Mod+N), así vive en el mismo launcher que todo lo demás en vez de en un panel con
+# estética propia. Es justamente lo que se buscaba al migrar.
+
+default-timeout=5000
+
+font=JetBrainsMono Nerd Font 11
+
+anchor=top-right
+width=400
+height=100
+padding=10
+border-size=1
+border-radius=4
+outer-margin=10
+max-icon-size=32
+max-visible=5
+
+# Agrupar por aplicación: cinco notificaciones de la misma app se colapsan en una.
+group-by=app-name
+
+markup=1
+actions=1
+history=1
+
+# El tema es un symlink que maneja `theme-set`, igual que waybar, walker y niri.
+include=~/.config/mako/theme
+
+# Click izquierdo descarta; el derecho descarta todas.
+on-button-left=dismiss
+on-button-right=dismiss-all
+on-button-middle=invoke-action default
+
+# ─── DND ───
+# `makoctl mode -t do-not-disturb` alterna este modo. Las críticas siguen pasando: una
+# alerta de batería o de disco lleno no debería quedar silenciada por un toggle.
+[mode=do-not-disturb]
+invisible=1
+
+[mode=do-not-disturb urgency=critical]
+invisible=0
+
+# ─── Urgencias ───
+[urgency=low]
+border-size=1
+
+[urgency=critical]
+border-size=2
+default-timeout=0

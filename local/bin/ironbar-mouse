@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Batería del mouse, para el módulo `script` de Ironbar.
+#
+# Uso:
+#   ironbar-mouse          imprime el texto de la barra (glifo + porcentaje)
+#   ironbar-mouse --check  sale 0 si hay mouse con batería, 1 si no (para show_if)
+#
+# ─── De dónde sale el dato ───
+#
+# El mouse es un Logitech G703 LIGHTSPEED, y el kernel lo maneja con el driver
+# `hid-logitech-hidpp`, que publica la batería como una power_supply más:
+#
+#     /sys/class/power_supply/hidpp_battery_0/{capacity,status,model_name}
+#
+# Se lee sysfs y no `upower` a propósito: upower también lo ve
+# (/org/freedesktop/UPower/devices/battery_hidpp_battery_0) pero implica lanzar un proceso
+# y parsear su salida, cuando acá alcanza con un `cat`. Menos partes móviles y más rápido
+# para algo que corre cada minuto.
+#
+# ─── El número del dispositivo NO es fijo ───
+#
+# El sufijo `_0` depende del orden de enumeración: si se enchufa otro periférico HID++
+# (un teclado Logitech, otro receptor) puede aparecer como hidpp_battery_1. Por eso se
+# busca con glob y se filtra por `scope=Device`, en vez de clavar la ruta.
+
+set -euo pipefail
+
+# Primera power_supply que sea un periférico (scope=Device) y tenga capacity.
+# `scope` distingue el mouse de una batería de sistema (scope=System), que no existe en
+# este desktop pero sí existiría en una laptop.
+bateria=""
+for d in /sys/class/power_supply/*/; do
+  [ -r "$d/capacity" ] || continue
+  [ "$(cat "$d/scope" 2>/dev/null || echo)" = "Device" ] || continue
+  bateria="$d"
+  break
+done
+
+if [ -z "$bateria" ]; then
+  # Sin mouse inalámbrico presente (apagado, dongle fuera): no se imprime nada y el
+  # --check falla, para que el módulo se esconda en vez de mostrar un hueco.
+  exit 1
+fi
+
+[ "${1:-}" = "--check" ] && exit 0
+
+pct=$(cat "$bateria/capacity" 2>/dev/null || echo 0)
+estado=$(cat "$bateria/status" 2>/dev/null || echo Unknown)
+
+# Cargando lleva glifo de rayo; el resto, el de mouse. Los dos verificados contra el
+# charset de la fuente:  fc-list --format='%{charset}\n' "JetBrainsMono Nerd Font"
+case "$estado" in
+  Charging|Full) glifo="󰢞" ;;
+  *)             glifo="󰍽" ;;
+esac
+
+# ─── Aviso de batería baja ───
+#
+# Ironbar no tiene el `states` de Waybar (los umbrales que pintaban el módulo de amarillo
+# y rojo), pero sí deja agregar y quitar clases CSS en vivo por IPC. Como este script ya
+# corre cada minuto, se aprovecha para setear su propia clase: no hace falta ni un timer
+# ni un segundo proceso vigilando.
+#
+# Las reglas `#mouse.warning` y `#mouse.critical` viven en ~/.config/ironbar/style.css,
+# junto a las de RAM/CPU/GPU, y toman el color del tema.
+#
+# Cargando no avisa: que esté al 5% enchufado no es un problema.
+if [ "$estado" != "Charging" ] && [ "$estado" != "Full" ]; then
+  if   [ "$pct" -le 10 ]; then clase=critical
+  elif [ "$pct" -le 20 ]; then clase=warning
+  else                         clase=""
+  fi
+else
+  clase=""
+fi
+
+for c in warning critical; do
+  if [ "$c" = "$clase" ]; then
+    ironbar style add-class mouse "$c" >/dev/null 2>&1 || true
+  else
+    ironbar style remove-class mouse "$c" >/dev/null 2>&1 || true
+  fi
+done
+
+printf '%s %s%%\n' "$glifo" "$pct"

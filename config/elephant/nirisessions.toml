@@ -1,0 +1,17 @@
+# Sesiones de niri.
+#
+# El default era `view-grid`, glifo gris de actions/ que además COMPARTÍA con niriactions:
+# dos entradas del providerlist con el mismo ícono. Ver el criterio en bluetooth.toml.
+#
+# NO CORRER `elephant generate config`: reescribe TODOS los archivos de esta carpeta,
+# los normaliza a la forma canónica y BORRA LOS COMENTARIOS. Conserva los valores, no la
+# prosa. Pasó el 2026-08-05 y se llevó puestos los comentarios de desktopapplications.toml.
+#
+# Y OJO con lo que genera: pone `icon` dentro de una sección [Config] que el propio
+# elephant 2.22.0 IGNORA al cargar. La forma que SÍ funciona es la clave suelta arriba de
+# todo, como está acá. Verificado las dos veces contra el providerlist real, no leyendo
+# la doc: con [Config] los íconos volvían a los defaults.
+
+icon = 'preferences-system-session'
+
+sessions = []

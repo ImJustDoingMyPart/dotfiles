@@ -1,0 +1,173 @@
+# Walker 2.17.0 — launcher.
+#
+# Este archivo solo OVERRIDEA lo que se aparta del default. El default de esta versión
+# está en /etc/xdg/walker/config.toml (lo instala el propio paquete) y ahí se ve todo
+# lo que ya viene gratis, en particular los prefijos de provider:
+#
+#   ;  providerlist      >  runner       /  files       .  symbols     !  todo
+#   %  bookmarks         =  calc         @  websearch   :  clipboard   $  windows
+#
+# El `:` de clipboard es el que reemplaza al panel de portapapeles de Noctalia (Mod+V),
+# y el `$` de windows sale gratis. No hace falta declarar nada de eso acá.
+
+# ─── El teclado se queda adentro (2026-08-11) ───
+#
+# EL PROBLEMA: por default la capa de walker se registra con keyboard-interactivity
+# "on-demand" (verificado con `niri msg layers` estando abierto). Con on-demand el foco
+# puede irse a otra ventana mientras el menú sigue abierto, y entonces lo que tipeás
+# —Escape incluido— le llega a la ventana de atrás, no al menú.
+#
+# `force_keyboard_focus = true` pasa la capa a "exclusive", donde el compositor le manda
+# TODO el teclado a walker. Verificado en el fuente de walker 2.17
+# (src/theme/mod.rs): `set_keyboard_mode(if force_keyboard_focus { Exclusive } else
+# { OnDemand })`.
+force_keyboard_focus = true
+
+# Tema propio. Solo aporta style.css: los layouts XML (layout.xml, item.xml, etc.) se
+# toman del tema "default" que instala el paquete en /etc/xdg/walker/themes/default/.
+theme = "base"
+additional_theme_location = "./themes/base"
+
+[keybinds]
+# F1-F4 sobre los primeros resultados. Se desactivan: en un launcher de teclado la mano
+# ya está en la fila de inicio, y las teclas de función están lejos.
+quick_activate = []
+
+[providers]
+# El default agrega calc y websearch a la búsqueda por defecto. Se deja solo apps: calc
+# y websearch siguen accesibles por sus prefijos (= y @) sin ensuciar cada búsqueda.
+default = ["desktopapplications"]
+
+[providers.clipboard]
+time_format = "%d/%m/%y · %H:%M"
+
+# ─── Búsqueda plana del índice de config (2026-08-08) ───
+#
+# EL PROBLEMA: desde el 2026-08-06 el índice de `Mod+,` tiene un nivel de categorías
+# (Apariencia, Multimedia, Red…). Con `walker --provider menus:system` la búsqueda solo
+# mira las entradas DE ESE menú, o sea las 6 categorías: tipear "wifi" encontraba
+# "Red · red y bluetooth" (la categoría) y nada más — la hoja que de verdad conecta al
+# wifi quedaba a un Right de distancia, invisible para la búsqueda. Verificado con
+# `elephant query "menus:system;wifi;20"`: 1 resultado, la categoría.
+#
+# LA SOLUCIÓN: un PROVIDER SET. `empty` es lo que se lista con el input vacío (solo el
+# índice: se abre igual que siempre, 6 categorías) y `default` es lo que se CONSULTA al
+# tipear (el índice + las 6 categorías + las hojas chicas y estáticas). Se invoca con
+# `walker --set system` (ver Mod+Comma en ~/.config/niri/cfg/keybinds.kdl).
+#
+# Regalo del mecanismo: cuando se consultan varios providers a la vez, walker prefija el
+# subtexto con el `name_pretty` del menú de origen ("Red: conectar y desconectar redes"
+# contra "System: red y bluetooth"), así se ve de qué nivel salió cada fila.
+#
+# QUÉ NO ESTÁ ACÁ, Y POR QUÉ: los menús de CONTENIDO, no de configuración —
+# `wallpapers-images` (las imágenes de una colección), `network` (las SSID del aire),
+# `notifications` (historial), `calendar`, `weather`, `audio` (streams vivos), `keybinds`,
+# `waybar`. Metidos en el set, cualquier búsqueda del índice queda sepultada: probado con
+# `elephant query "menus;wifi;20"` (búsqueda global de TODOS los menús), donde tipear
+# "wifi" devuelve wallpapers de la carpeta apocalypse arriba de la mitad de la lista.
+# Cada uno de esos menús tiene su propia puerta (tecla o entrada del índice).
+#
+# LÍMITE CONOCIDO: el set rige mientras no navegues. Si entrás a una categoría con Right
+# y volvés con Left, walker queda en `menus:system` a secas y la búsqueda vuelve a ser
+# de un solo nivel hasta que cierres y reabras. Verificado en pantalla el 2026-08-08.
+[providers.sets.system]
+empty = ["menus:system"]
+default = [
+  "menus:system",
+  "menus:sys-appearance",
+  "menus:sys-multimedia",
+  "menus:sys-network",
+  "menus:sys-system",
+  "menus:sys-utilities",
+  "menus:sys-windows",
+  # Hojas: listas cortas y fijas, así "caffeine", "rendimiento", un nombre de pack de
+  # animaciones o el de una colección de fondos se encuentran desde el índice sin navegar.
+  # Entre las seis suman ~47 entradas, ruido despreciable.
+  #
+  # `wallpapers-select` entró acá el 2026-08-08 (entonces se llamaba `wallpapers`), cuando
+  # pasó a listar las 20 COLECCIONES en vez de las 603 imágenes. Con las imágenes adentro
+  # habría sido imposible: eran el ejemplo de lo que sepulta al índice. Las imágenes viven en
+  # `wallpapers-images`, que sigue afuera.
+  #
+  # `wallpapers` es desde el 2026-08-14 el menú GRANDE (Selector · Directorio · Duración):
+  # tres entradas, entra al set sin costo, y es lo que hace que tipear "duracion" o "carpeta"
+  # desde `Mod+,` caiga en la rama correcta. `wallpapers-root` y `wallpapers-timer` quedan
+  # AFUERA: la primera lista carpetas del disco (contenido), y las cuatro filas de la segunda
+  # —"3 horas", "6 horas"— son ruido puro para cualquier búsqueda.
+  #
+  # `fonts` son DOS entradas (Sistema y Terminal), así que tipear "fuente" desde el índice
+  # cae directo en la que se busca. Sus dos hojas —`fonts-system` y `fonts-terminal`, 50
+  # familias entre las dos— quedan AFUERA por lo mismo que las imágenes: nombres como
+  # "Impact", "Inter" o "Courier New" competirían con cualquier búsqueda del índice.
+  "menus:animations",
+  "menus:cursors",
+  "menus:energy",
+  "menus:fonts",
+  "menus:icon-packs",
+  "menus:themes",
+  "menus:toggles",
+  "menus:wallpapers",
+  "menus:wallpapers-select",
+  # `cursors` (8 temas) e `icon-packs` (2026-08-19): mismo caso que `animations` —
+  # listas chicas y fijas, así "capitaine" o "tela" se encuentran desde el índice.
+  # El auto-matching de color de icon-packs contra matugen vive en icon-set, no acá.
+]
+
+[providers.max_results_provider]
+# Listas que se navegan enteras, no se buscan: no tiene sentido cortarlas en 50.
+niriactions = 150
+"menus:keybinds" = 150
+"menus:waybar" = 150
+
+[columns]
+"menus:keybinds" = 2
+symbols = 3
+
+# ─── Navegación entre niveles (2026-08-06) ───
+#
+# Se redefine `fallback` entero porque elephant/walker lo REEMPLAZA, no lo mergea entrada
+# por entrada. Las cuatro acciones son las del default de /etc/xdg/walker/config.toml; lo
+# único que cambia es el `bind` de `menus:parent`.
+#
+# EL PROBLEMA QUE RESUELVE: `Escape` estaba peleado consigo mismo. El `[keybinds] close`
+# global lo usa para cerrar walker, y este `menus:parent` lo usaba para volver atrás. Cuando
+# el menú declaraba `parent`, ganaba el segundo — así que Escape hacía una cosa distinta
+# según el nivel en el que estuvieras.
+#
+# Ahora: `Left` vuelve atrás y `Escape` cierra SIEMPRE, sin importar la profundidad.
+# `Right` y `Return` entran (ver [keybinds] más abajo).
+[providers.actions]
+fallback = [
+  { action = "menus:open", label = "abrir", bind = "Right", after = "Nothing" },
+  { action = "menus:default", label = "run", after = "Close" },
+  { action = "menus:parent", label = "atrás", bind = "Left", after = "Nothing" },
+  { action = "erase_history", label = "clear hist", bind = "ctrl h", after = "AsyncReload" },
+]
+
+# ─── El Directorio de fondos se queda abierto y se refresca solo (2026-08-14) ───
+#
+# DOS PROBLEMAS QUE RESUELVE, los dos del `fallback` de arriba:
+#
+# 1. Elegir una carpeta CERRABA walker (`menus:default` viene con `after = "Close"`). Pero
+#    este menú se usa justo antes de cambiar el fondo, así que cerrarse obliga a reabrir.
+#    Con `AsyncClearReload` walker sigue vivo, borra lo tipeado y **recalcula la lista**, que
+#    es lo que hace que se vea el efecto: la carpeta elegida pasa a ser la actual y la lista
+#    se re-centra en ella. Eso es lo que reemplaza a navegar.
+#
+# 2. `Right` ejecutaba la acción con `after = "Nothing"`: cambiaba la raíz de verdad, pero la
+#    lista quedaba igual, así que parecía que no había pasado nada hasta cerrar y reabrir.
+#    Ahora `Right` hace lo mismo que `Return` — en un menú sin submenús, "entrar" y "elegir"
+#    son la misma cosa.
+#
+# Se repite `menus:parent` a propósito: la lista de un provider REEMPLAZA al fallback, no lo
+# extiende, así que lo que no esté acá se pierde para este menú. `menus:open` NO está: ninguna
+# fila declara `SubMenu`, y dejarlo colgado de una tecla es lo que causó el problema 2.
+"menus:wallpapers-root" = [
+  # Las dos filas son la MISMA acción con dos teclas, y llevan etiquetas distintas a propósito:
+  # es la misma operación leída de dos maneras según sobre qué fila estés parado ("usar esta
+  # carpeta" sobre una subcarpeta es entrar en ella). Sin `label` walker no deja el hint vacío:
+  # muestra el nombre crudo de la acción, "menus:default" (visto en pantalla).
+  { action = "menus:default", label = "usar esta carpeta", bind = "Return", after = "AsyncClearReload" },
+  { action = "menus:default", label = "entrar", bind = "Right", after = "AsyncClearReload" },
+  { action = "menus:parent", label = "atrás", bind = "Left", after = "Nothing" },
+]

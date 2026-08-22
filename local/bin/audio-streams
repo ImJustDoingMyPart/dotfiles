@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""Lista las combinaciones (aplicación que suena × salida de audio), en TSV.
+
+Existe para que el menú `menus:audio` de walker no tenga que parsear PipeWire desde Lua.
+Es el mismo reparto que usa `calendar-events`: el trabajo sucio en un script propio, y el
+menú solo formatea.
+
+Salida: una línea por PAR posible, campos separados por tabulación:
+
+    indice_stream <TAB> app <TAB> icono <TAB> sink <TAB> salida <TAB> actual <TAB> detalle
+
+    indice_stream  el `sink-input` de PipeWire, que es lo que se mueve
+    app            nombre legible del programa
+    icono          nombre de ícono que declara el programa (puede venir vacío)
+    sink           nombre interno del dispositivo, que es lo que espera pactl
+    salida         nombre lindo del dispositivo ("Auriculares", "Parlantes", "HDMI")
+    actual         "1" si ese stream YA está en ese dispositivo, "0" si no
+    detalle        `media.name` (p. ej. "Playback"), puede venir vacío
+
+Sin argumentos imprime todo. Si no hay nada sonando no imprime nada y sale con 0: el menú
+se encarga de mostrar el mensaje.
+
+Por qué pactl y no wpctl: `pactl move-sink-input` mueve UN stream a un sink por índice, que
+es exactamente la operación que hace falta. `wpctl` no tiene un equivalente directo.
+"""
+
+import json
+import subprocess
+import sys
+
+
+def pactl(que):
+    """Devuelve la lista JSON de `pactl -f json list <que>`, o [] si algo falla.
+
+    Se degrada en silencio a propósito: si PipeWire no responde, el menú tiene que
+    mostrarse vacío en vez de trabar el launcher entero.
+    """
+    try:
+        out = subprocess.run(
+            ["pactl", "-f", "json", "list", que],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode != 0:
+            return []
+        return json.loads(out.stdout)
+    except Exception:
+        return []
+
+
+def etiqueta(props):
+    """Nombre legible del programa.
+
+    Se prefiere el BINARIO sobre `application.name` cuando difieren: las apps de Electron
+    se presentan todas como "Chromium" (Vesktop, por ejemplo), y ese nombre no sirve para
+    distinguir cuál de las ventanas es. El binario sí.
+    """
+    binario = (props.get("application.process.binary") or "").strip()
+    nombre = (props.get("application.name") or "").strip()
+
+    if binario:
+        # Se capitaliza solo la primera letra: "vesktop" -> "Vesktop", pero sin tocar
+        # nombres que ya vienen con mayúsculas internas.
+        lindo = binario[0].upper() + binario[1:]
+        if nombre and nombre.lower() not in (binario.lower(), lindo.lower()):
+            return f"{lindo} ({nombre})"
+        return lindo
+
+    return nombre or "Desconocido"
+
+
+def main():
+    streams = pactl("sink-inputs")
+    sinks = pactl("sinks")
+    if not streams or not sinks:
+        return 0
+
+    filas = []
+    for s in streams:
+        props = s.get("properties", {}) or {}
+        # Los streams sin `sink` no se pueden mover; y los de los propios monitores de
+        # PipeWire no son aplicaciones.
+        actual = s.get("sink")
+        if actual is None:
+            continue
+
+        app = etiqueta(props)
+        icono = (props.get("application.icon_name") or "").strip()
+        detalle = (props.get("media.name") or "").strip()
+
+        for d in sinks:
+            filas.append("\t".join([
+                str(s["index"]),
+                app,
+                icono,
+                d["name"],
+                d.get("description") or d["name"],
+                "1" if d.get("index") == actual else "0",
+                detalle,
+            ]))
+
+    sys.stdout.write("\n".join(filas) + ("\n" if filas else ""))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

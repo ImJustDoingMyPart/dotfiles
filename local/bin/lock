@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Bloquea la pantalla con hyprlock.
+#
+# Es el punto único de entrada al bloqueo: lo llaman el bind Mod+ALT+L, el menú de sesión
+# (menus:session), el bind de rescate Mod+ALT+Shift+L y el `lock_cmd` de hypridle.
+#
+# Existe —en vez de invocar `hyprlock` pelado— por dos cosas:
+#
+#   1. Garantizar que exista la copia del wallpaper que hyprlock usa de fondo. La ruta está
+#      FIJA en ~/.config/hypr/hyprlock.conf porque la config es estática y el wallpaper
+#      cambia; el archivo lo escribe `wallpaper-set`. Si falta, hyprlock no avisa: muestra
+#      el color plano del tema y listo.
+#   2. No apilar lockers. niri usa ext-session-lock y dos clientes peleando por la sesión es
+#      una forma de quedarse afuera.
+#
+# El resto (colores, reloj, fecha, campo de contraseña) sale de ~/.config/hypr/hyprlock.conf,
+# que trae los colores del tema activo con `source`. A diferencia de swaylock, acá el fondo
+# NO se pasa por argumento: hyprlock lo lee de su propia config.
+
+set -euo pipefail
+
+if pgrep -x hyprlock >/dev/null; then
+  exit 0
+fi
+
+LOCK_IMG="$HOME/.local/state/wallpaper-lock.png"
+
+# Si la copia no existe (primer arranque, o el wallpaper se puso sin wallpaper-set), se
+# genera al vuelo. Cuesta un instante pero es mejor que un lock sin fondo.
+if [[ ! -r $LOCK_IMG ]]; then
+  wallpaper-set "$(wallpaper-set --actual 2>/dev/null)" >/dev/null 2>&1 || true
+fi
+
+exec hyprlock

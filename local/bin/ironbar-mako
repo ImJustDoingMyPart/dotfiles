@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Indicador de notificaciones para Ironbar, contra mako.
+#
+# Por qué no se usa el módulo `notifications` nativo de Ironbar: ese módulo habla por
+# D-Bus con SwayNotificationCenter (org.erikreider.swaync), no con el daemon genérico de
+# notificaciones. Con mako no muestra nada. Es el mismo motivo por el que en Waybar
+# existía `waybar-mako`.
+#
+# Diferencia con aquel: el módulo `script` de Ironbar muestra el STDOUT CRUDO, no el JSON
+# de Waybar ({text, tooltip, class}). Así que acá se imprime el glifo pelado.
+#
+# Estados: campana tachada (DND) · campana con punto (hay historial) · campana vacía.
+# Los tres glifos ya estaban verificados contra el charset de JetBrainsMono Nerd Font.
+
+set -euo pipefail
+
+# `makoctl mode` imprime un modo por línea; do-not-disturb aparece solo si está activo.
+if makoctl mode 2>/dev/null | grep -qx "do-not-disturb"; then
+  printf '󰂛\n'
+  exit 0
+fi
+
+# -j da JSON (documentado en `man 1 makoctl`). Sin mako corriendo esto falla, y el
+# módulo tiene que degradar en silencio en vez de romper la barra.
+count=$(makoctl history -j 2>/dev/null | python3 -c 'import sys,json
+try: print(len(json.load(sys.stdin)))
+except Exception: print(0)' 2>/dev/null || echo 0)
+
+if (( count > 0 )); then
+  printf '󱅫\n'
+else
+  printf '󰂜\n'
+fi

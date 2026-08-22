@@ -1,0 +1,24 @@
+/* Template de matugen -> ~/.config/themes/matugen/walker.css
+ *
+ * Nombres de variable heredados del tema base de dotfriedrice, que a su vez usa los
+ * nombres estandar de GTK4/libadwaita. Su style.css los consume con lighter() y
+ * alpha(), asi que alcanza con declarar estos cinco.
+ *
+ * Mismo cuidado que en waybar.css: nada de placeholders dentro de comentarios.
+ */
+
+/* Fondo del launcher. Se usa surface_container_low y no surface porque walker aplica
+ * lighter() encima para el input, y partiendo del surface mas oscuro ese lighter()
+ * queda casi invisible. */
+@define-color window_bg_color {{colors.surface_container_low.default.hex}};
+
+@define-color accent_bg_color {{colors.primary.default.hex}};
+
+/* Segundo color del gradiente. Es el mismo par que usa el focus-ring de niri
+ * (primary -> tertiary), para que el borde del launcher y el de las ventanas se lean
+ * como la misma cosa. */
+@define-color accent_alt_bg_color {{colors.tertiary.default.hex}};
+@define-color theme_fg_color  {{colors.on_surface.default.hex}};
+
+@define-color error_bg_color {{colors.error.default.hex}};
+@define-color error_fg_color {{colors.on_error.default.hex}};
