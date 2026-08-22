@@ -9,7 +9,7 @@ dinámicamente desde el wallpaper con [matugen](https://github.com/InioX/matugen
 
 ## Demo
 
-[Ver el video](https://github.com/ImJustDoingMyPart/dotfiles/releases/download/demo/dotfiles-demo-matugen.mp4) <!-- TODO: reemplazar por el embed real (user-attachments) -->
+https://github.com/user-attachments/assets/0f381720-7f06-4f28-b939-9cc000fb19e0
 
 Terminal, Ironbar + Walker, Yazi, una notificación de Mako, Obsidian, Nautilus, Brave y la
 pantalla de bloqueo (Hyprlock), todos con la misma paleta generada por matugen.
