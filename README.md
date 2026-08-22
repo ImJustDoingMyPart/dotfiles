@@ -1,16 +1,18 @@
 # dotfiles
 
-Setup de escritorio para **CachyOS + [Niri](https://github.com/YaLTeR/niri)** (compositor
-tiling scrollable en Wayland). Terminal minimalista (Alacritty + Fish + Starship), barra
-Waybar/Ironbar, launcher Walker + Elephant, notificaciones Mako, y todo el theming generado
+Setup de escritorio para **[Niri](https://github.com/YaLTeR/niri)** (compositor tiling
+scrollable en Wayland), armado sobre CachyOS pero pensado para cualquier distro de
+**familia Arch** (ver más abajo qué tan atado está a eso, que es poco). Terminal minimalista
+(Alacritty + Fish/Zsh + Starship), barra Waybar/Ironbar, launcher Walker + Elephant,
+notificaciones Mako, pantalla de bloqueo Hyprlock/Hypridle, y todo el theming generado
 dinámicamente desde el wallpaper con [matugen](https://github.com/InioX/matugen) (Material You).
 
 ## Demo
 
-[Ver el video](https://github.com/ImJustDoingMyPart/dotfiles/releases/download/demo/dotfiles-demo-matugen.mp4) <!-- TODO: reemplazar por el embed real (user-attachments) cuando esté la versión final con hyprlock -->
+[Ver el video](https://github.com/ImJustDoingMyPart/dotfiles/releases/download/demo/dotfiles-demo-matugen.mp4) <!-- TODO: reemplazar por el embed real (user-attachments) -->
 
 Terminal, Ironbar + Walker, Yazi, una notificación de Mako, Obsidian, Nautilus, Brave y la
-pantalla de bloqueo, todos con la misma paleta generada por matugen.
+pantalla de bloqueo (Hyprlock), todos con la misma paleta generada por matugen.
 
 ## Instalación
 
@@ -45,6 +47,7 @@ install.sh  → instalador (ver arriba)
 | Terminal | `config/alacritty/`, `config/kitty/`, `config/fish/` y/o `config/zsh/`, `config/starship.toml` |
 | Herramientas CLI con tema propio | `config/bat/`, `config/yazi/` |
 | Bloqueo de pantalla / idle | `config/hypr/` (`hyprlock.conf` + `hypridle.conf` — sí, con niri; hyprlock/hypridle son standalone) |
+| Banner de shell | `config/fastfetch/` (`config.jsonc` + `ascii_art.txt`, el logo de la izquierda) |
 | Theming (Material You) | `config/matugen/` — `config.toml` define qué template genera qué archivo |
 
 `fish/` y `zsh/` son equivalentes e independientes — instalá el que uses, el otro no molesta si
@@ -90,7 +93,7 @@ equivalente manual para Debian/Fedora/openSUSE.
   coordenadas (instrucciones adentro del archivo) — `install.sh` no lo pisa si ya existe.
 - **Dependencias:** `niri`, `matugen`, `waybar`/`ironbar`, `walker` + `elephant`, `mako`,
   `hyprlock`, `hypridle`, `alacritty`, `fish` y/o `zsh`, `starship`, `zoxide`, `atuin`, `eza`,
-  `bat`, `fzf`, `yazi`, `chafa`, `wl-clipboard`, `jq`.
+  `bat`, `fzf`, `yazi`, `chafa`, `wl-clipboard`, `jq`, `fastfetch`.
 
 ## Qué NO está acá (a propósito)
 
