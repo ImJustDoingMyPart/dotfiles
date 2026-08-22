@@ -5,11 +5,32 @@ tiling scrollable en Wayland). Terminal minimalista (Alacritty + Fish + Starship
 Waybar/Ironbar, launcher Walker + Elephant, notificaciones Mako, y todo el theming generado
 dinámicamente desde el wallpaper con [matugen](https://github.com/InioX/matugen) (Material You).
 
+## Demo
+
+<video src="https://github.com/ImJustDoingMyPart/dotfiles/releases/download/demo/dotfiles-demo-matugen.mp4" controls width="100%"></video>
+
+Terminal, Ironbar + Walker, Yazi, una notificación de Mako, Obsidian, Nautilus y Brave, todos
+con la misma paleta generada por matugen.
+
+## Instalación
+
+```sh
+git clone https://github.com/ImJustDoingMyPart/dotfiles.git
+cd dotfiles
+./install.sh          # symlinkea config/ -> ~/.config y local/bin/ -> ~/.local/bin
+./install.sh --copy   # o copia en vez de symlinkear, si preferís no depender del repo
+```
+
+Lo que ya exista en destino se respalda (con timestamp) antes de reemplazarlo, así que no pisa
+nada en silencio. También adapta automáticamente las rutas absolutas (ver más abajo) a tu
+usuario real. Instalá las dependencias antes (lista más abajo) — el script no instala paquetes.
+
 ## Estructura
 
 ```
 config/     → mapea a ~/.config/<mismo nombre>
 local/bin/  → mapea a ~/.local/bin (scripts propios, deben quedar ejecutables)
+install.sh  → instalador (ver arriba)
 ```
 
 ## Piezas principales
@@ -39,18 +60,30 @@ viene incluido en este repo — se recrea corriendo matugen con esta config. Var
 config — symlink que tampoco viene en el repo por lo mismo (apunta a algo que todavía no
 existe hasta que corras matugen la primera vez).
 
+## Qué es específico de Arch/CachyOS
+
+La mayor parte de este repo es config de proyectos upstream (niri, waybar/ironbar, walker,
+mako, matugen, alacritty/kitty, starship, bat, yazi, btop, MangoHud, GTK, Qt, swayosd, micro):
+no le importa la distro, solo que el paquete esté instalado. Los puntos que sí asumen
+Arch/CachyOS son estos cuatro:
+
+| Dónde | Qué hace | Alcance |
+|---|---|---|
+| `fish/config.fish` | `source /usr/share/cachyos-fish-config/cachyos-config.fish` | Solo CachyOS — en otra distro esa ruta no existe |
+| `fish/config.fish` | `alias update='paru -Syu'` | Familia Arch (necesita un AUR helper) |
+| `elephant/menus/sys-system.toml` | Entrada "Paquetes de Arch", usa el provider `archlinuxpkgs` de walker | Solo Arch |
+| `local/bin/desktop-orphans`, `icon-set`, `mpris-ctl` | Resuelven qué paquete es dueño de un archivo con `pacman -Qo` | Familia Arch |
+
+Para otra distro: comentá o envolvé en un `if test -f ...` la línea de `cachyos-config.fish`, y
+cambiá `update`/las llamadas a `pacman -Qo` por el equivalente de tu gestor de paquetes.
+
 ## Antes de usar esto
 
-- **Rutas absolutas:** algunos archivos (`matugen/config.toml`, `niri/cfg/keybinds.kdl`,
-  `fastfetch/config.jsonc`) tienen rutas absolutas tipo `/home/anon/...` porque el propio
-  programa las requiere así (p. ej. `niri spawn` no pasa por un shell, así que no expande
-  `$HOME`). Reemplazá `anon` por tu usuario real donde corresponda.
 - **`weather-location.example`:** copiá a `~/.config/weather-location` con tus propias
-  coordenadas (instrucciones adentro del archivo).
+  coordenadas (instrucciones adentro del archivo) — `install.sh` no lo pisa si ya existe.
 - **Dependencias:** `niri`, `matugen`, `waybar`/`ironbar`, `walker` + `elephant`, `mako`,
   `alacritty`, `fish`, `starship`, `zoxide`, `atuin`, `eza`, `bat`, `fzf`, `yazi`, `chafa`,
   `wl-clipboard`, `jq`.
-- Varios scripts en `local/bin/` llaman a otros de la misma carpeta — copiala completa.
 
 ## Qué NO está acá (a propósito)
 
