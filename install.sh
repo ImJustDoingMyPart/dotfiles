@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Instala esta config en ~/.config y ~/.local/bin.
+# Instala esta config en ~/.config, ~/.local/bin y ~/.zshenv.
 #
 # Por defecto symlinkea (así un `git pull` en este repo actualiza la config en
 # caliente, y podés editar en ~/.config y commitear desde ahí). Con --copy
@@ -7,6 +7,15 @@
 #
 # Todo lo que ya exista en destino se mueve a un backup con timestamp antes de
 # reemplazarlo — no se pisa nada en silencio.
+#
+# Alcance: familia Arch (Arch, CachyOS, Manjaro, EndeavourOS...). Este script en
+# sí no le pide nada a pacman —es bash puro, corre en cualquier lado— pero varias
+# de las piezas que instala sí asumen Arch (el alias `update`, la entrada
+# "Paquetes de Arch" del launcher, `desktop-orphans` con `pacman -Qo`, y
+# fish/config.fish que además pide específicamente CachyOS en una línea). Cada
+# uno de esos puntos tiene, al lado, un comentario con el equivalente manual
+# para Debian/Fedora/openSUSE — ver también la sección "Qué es específico de
+# Arch/CachyOS" del README.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,14 +61,20 @@ for path in "$REPO_DIR"/local/bin/*; do
     chmod +x "$HOME/.local/bin/$name" 2>/dev/null || true
 done
 
+# zsh SIEMPRE lee ~/.zshenv de esa ruta fija (no de ZDOTDIR) — por eso va aparte
+# del loop de config/ y no dentro de config/zsh/, que sí sigue la regla general
+# y termina en ~/.config/zsh/.
+echo "-> zshenv en ~/.zshenv (fish no necesita este paso)"
+place "$REPO_DIR/zshenv" "$HOME/.zshenv"
+
 # niri (spawn) y matugen no expanden $HOME: algunos archivos traen la ruta
 # absoluta de la máquina original. Se adapta al usuario real acá.
 if [[ "$HOME" != "/home/anon" ]]; then
     echo "-> adaptando rutas /home/anon a $HOME"
     if [[ "$MODE" == link ]]; then
-        targets=("$REPO_DIR/config/matugen/config.toml" "$REPO_DIR/config/niri/cfg/keybinds.kdl" "$REPO_DIR/config/fastfetch/config.jsonc")
+        targets=("$REPO_DIR/config/matugen/config.toml" "$REPO_DIR/config/niri/cfg/keybinds.kdl" "$REPO_DIR/config/fastfetch/config.jsonc" "$REPO_DIR/config/hypr/hyprlock.conf")
     else
-        targets=("$HOME/.config/matugen/config.toml" "$HOME/.config/niri/cfg/keybinds.kdl" "$HOME/.config/fastfetch/config.jsonc")
+        targets=("$HOME/.config/matugen/config.toml" "$HOME/.config/niri/cfg/keybinds.kdl" "$HOME/.config/fastfetch/config.jsonc" "$HOME/.config/hypr/hyprlock.conf")
     fi
     for f in "${targets[@]}"; do
         [[ -f "$f" ]] && sed -i "s#/home/anon#$HOME#g" "$f"
@@ -75,5 +90,6 @@ fi
 echo "Listo. Pendiente a mano:"
 echo "  - Coordenadas reales en ~/.config/weather-location"
 echo "  - Instalar las dependencias listadas en el README"
+echo "  - Incluye fish/ Y zsh/ — usá el que tengas como shell, el otro no molesta"
 echo "  - Si no estás en Arch/CachyOS: revisar la sección del README sobre"
-echo "    fish/config.fish, el alias 'update' y los scripts que usan pacman"
+echo "    fish/config.fish, zsh/.zshrc, el alias 'update' y desktop-orphans"

@@ -100,6 +100,8 @@ for dir in "${dirs[@]}"; do
 
     ((found++))
     nombre=$(grep -m1 -E '^Name[[:space:]]*=' <<< "$body" | sed 's/^Name[[:space:]]*=[[:space:]]*//')
+    # Familia Arch: pacman -Qo dice qué paquete instaló el archivo. Equivalente
+    # en Debian/Ubuntu: dpkg -S "$file"; en Fedora/openSUSE: rpm -qf "$file".
     duenio=$(pacman -Qoq "$file" 2>/dev/null)
 
     if [[ -n $duenio ]]; then

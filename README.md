@@ -7,10 +7,10 @@ dinámicamente desde el wallpaper con [matugen](https://github.com/InioX/matugen
 
 ## Demo
 
-<video src="https://github.com/ImJustDoingMyPart/dotfiles/releases/download/demo/dotfiles-demo-matugen.mp4" controls width="100%"></video>
+[Ver el video](https://github.com/ImJustDoingMyPart/dotfiles/releases/download/demo/dotfiles-demo-matugen.mp4) <!-- TODO: reemplazar por el embed real (user-attachments) cuando esté la versión final con hyprlock -->
 
-Terminal, Ironbar + Walker, Yazi, una notificación de Mako, Obsidian, Nautilus y Brave, todos
-con la misma paleta generada por matugen.
+Terminal, Ironbar + Walker, Yazi, una notificación de Mako, Obsidian, Nautilus, Brave y la
+pantalla de bloqueo, todos con la misma paleta generada por matugen.
 
 ## Instalación
 
@@ -30,6 +30,7 @@ usuario real. Instalá las dependencias antes (lista más abajo) — el script n
 ```
 config/     → mapea a ~/.config/<mismo nombre>
 local/bin/  → mapea a ~/.local/bin (scripts propios, deben quedar ejecutables)
+zshenv      → mapea a ~/.zshenv (zsh lee esa ruta fija siempre; ver "Piezas principales")
 install.sh  → instalador (ver arriba)
 ```
 
@@ -41,9 +42,13 @@ install.sh  → instalador (ver arriba)
 | Barra | `config/waybar/` o `config/ironbar/` (uso Ironbar activamente; Waybar queda de referencia) |
 | Launcher | `config/walker/` + `config/elephant/` (menús/providers en Lua y TOML) |
 | Notificaciones | `config/mako/` |
-| Terminal | `config/alacritty/`, `config/kitty/`, `config/fish/`, `config/starship.toml` |
+| Terminal | `config/alacritty/`, `config/kitty/`, `config/fish/` y/o `config/zsh/`, `config/starship.toml` |
 | Herramientas CLI con tema propio | `config/bat/`, `config/yazi/` |
+| Bloqueo de pantalla / idle | `config/hypr/` (`hyprlock.conf` + `hypridle.conf` — sí, con niri; hyprlock/hypridle son standalone) |
 | Theming (Material You) | `config/matugen/` — `config.toml` define qué template genera qué archivo |
+
+`fish/` y `zsh/` son equivalentes e independientes — instalá el que uses, el otro no molesta si
+queda ahí sin usarse (ninguno se auto-invoca).
 
 ## Theming con matugen
 
@@ -70,20 +75,22 @@ Arch/CachyOS son estos cuatro:
 | Dónde | Qué hace | Alcance |
 |---|---|---|
 | `fish/config.fish` | `source /usr/share/cachyos-fish-config/cachyos-config.fish` | Solo CachyOS — en otra distro esa ruta no existe |
-| `fish/config.fish` | `alias update='paru -Syu'` | Familia Arch (necesita un AUR helper) |
+| `fish/config.fish`, `zsh/.zshrc` | `alias update='paru -Syu'` | Familia Arch (necesita un AUR helper) |
 | `elephant/menus/sys-system.toml` | Entrada "Paquetes de Arch", usa el provider `archlinuxpkgs` de walker | Solo Arch |
-| `local/bin/desktop-orphans`, `icon-set`, `mpris-ctl` | Resuelven qué paquete es dueño de un archivo con `pacman -Qo` | Familia Arch |
+| `local/bin/desktop-orphans` | Resuelve qué paquete es dueño de un archivo con `pacman -Qo` | Familia Arch |
 
-Para otra distro: comentá o envolvé en un `if test -f ...` la línea de `cachyos-config.fish`, y
-cambiá `update`/las llamadas a `pacman -Qo` por el equivalente de tu gestor de paquetes.
+`zsh/.zshrc` deliberadamente **no** sourcea `cachyos-zsh-config` (a diferencia de la versión de
+fish con la suya): ese paquete trae oh-my-zsh + Powerlevel10k como prompt fijo, que pelea con
+starship. Cada uno de los puntos de la tabla tiene, al lado en el archivo, un comentario con el
+equivalente manual para Debian/Fedora/openSUSE.
 
 ## Antes de usar esto
 
 - **`weather-location.example`:** copiá a `~/.config/weather-location` con tus propias
   coordenadas (instrucciones adentro del archivo) — `install.sh` no lo pisa si ya existe.
 - **Dependencias:** `niri`, `matugen`, `waybar`/`ironbar`, `walker` + `elephant`, `mako`,
-  `alacritty`, `fish`, `starship`, `zoxide`, `atuin`, `eza`, `bat`, `fzf`, `yazi`, `chafa`,
-  `wl-clipboard`, `jq`.
+  `hyprlock`, `hypridle`, `alacritty`, `fish` y/o `zsh`, `starship`, `zoxide`, `atuin`, `eza`,
+  `bat`, `fzf`, `yazi`, `chafa`, `wl-clipboard`, `jq`.
 
 ## Qué NO está acá (a propósito)
 

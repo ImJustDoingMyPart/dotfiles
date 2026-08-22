@@ -2,6 +2,14 @@
 # ─── Migrado de Zsh — Setup minimalista ───
 
 # Cargar la config base de CachyOS (incluye fastfetch, eza aliases, etc.)
+#
+# Esta línea es la única razón por la que este archivo pide CachyOS puntual (no
+# alcanza con "familia Arch"): el paquete cachyos-fish-config solo existe en sus
+# repos. En otra distro, comentala o borrala — perdés el fastfetch automático al
+# abrir shell y unos aliases de eza que igual pisamos más abajo. El resto de este
+# archivo es fish puro y no le importa la distro (ver el `alias update` más abajo,
+# que sí asume Arch por `paru`, y la sección "Qué es específico de Arch/CachyOS"
+# del README).
 source /usr/share/cachyos-fish-config/cachyos-config.fish
 
 # ─── Herramientas CLI ───
@@ -56,6 +64,8 @@ end
 alias c='clear'
 alias reload='source ~/.config/fish/config.fish'
 alias fishconf='micro ~/.config/fish/config.fish'  # Antes: microconf
+# Asume familia Arch (necesita un AUR helper). En Debian/Ubuntu: 'sudo apt update
+# && sudo apt upgrade'; en Fedora: 'sudo dnf upgrade'; en openSUSE: 'sudo zypper up'.
 alias update='paru -Syu'
 
 # Portapapeles Wayland  

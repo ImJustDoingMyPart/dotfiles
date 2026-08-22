@@ -21,6 +21,10 @@ subtext = "perfil de energía del sistema"
 keywords = ["energia", "power", "profile", "bateria", "rendimiento"]
 icon = "cs-power"
 submenu = "energy"
+# Solo Arch: usa el provider `archlinuxpkgs`, nativo de walker/elephant y sin
+# equivalente en otras distros. En otra distro, sacá esta entrada o cambiá
+# `actions` por el front-end de paquetes que corresponda (gnome-software,
+# plasma-discover, etc.).
 [[entries]]
 text = "Paquetes de Arch"
 subtext = "buscar, instalar y quitar paquetes"
