@@ -9,7 +9,7 @@ dinámicamente desde el wallpaper con [matugen](https://github.com/InioX/matugen
 
 ## Demo
 
-https://github.com/user-attachments/assets/0f381720-7f06-4f28-b939-9cc000fb19e0
+[Ver el video](https://github.com/ImJustDoingMyPart/dotfiles/releases/download/demo/dotfiles-demo-matugen.mp4) <!-- TODO: reemplazar por el embed real (user-attachments) -->
 
 Terminal, Ironbar + Walker, Yazi, una notificación de Mako, Obsidian, Nautilus, Brave y la
 pantalla de bloqueo (Hyprlock), todos con la misma paleta generada por matugen.
@@ -52,6 +52,19 @@ install.sh  → instalador (ver arriba)
 
 `fish/` y `zsh/` son equivalentes e independientes — instalá el que uses, el otro no molesta si
 queda ahí sin usarse (ninguno se auto-invoca).
+
+## Animaciones de niri (elegirlas desde Walker)
+
+`config/niri/animations/` tiene varios packs (`.kdl`) intercambiables — no hay que editar
+`config.kdl` a mano para cambiar de animación. El menú **Animations** de Walker
+(`config/elephant/menus/animations.lua`) lista los packs de esa carpeta y aplica el elegido
+con `local/bin/niri-animation`, que reescribe el `include` de `config/niri/animations.kdl` y
+lo valida antes de dejarlo. `config/niri/cfg/animation.kdl` es el pack base (fallback) que se
+incluye después.
+
+Los packs no son míos: son de
+[niri-animation-collection](https://github.com/jgarza9788/niri-animation-collection) (MIT),
+de Justin Garza y colaboradores — cada `.kdl` trae su autoría en el propio header del archivo.
 
 ## Theming con matugen
 
