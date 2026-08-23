@@ -3,7 +3,7 @@
 Setup de escritorio para **[Niri](https://github.com/YaLTeR/niri)** (compositor tiling
 scrollable en Wayland), armado sobre CachyOS pero pensado para cualquier distro de
 **familia Arch** (ver más abajo qué tan atado está a eso, que es poco). Terminal minimalista
-(Alacritty + Fish/Zsh + Starship), barra Waybar/Ironbar, launcher Walker + Elephant,
+(Kitty + Fish/Zsh + Starship), barra Waybar/Ironbar, launcher Walker + Elephant,
 notificaciones Mako, pantalla de bloqueo Hyprlock/Hypridle, y todo el theming generado
 dinámicamente desde el wallpaper con [matugen](https://github.com/InioX/matugen) (Material You).
 
@@ -44,7 +44,7 @@ install.sh  → instalador (ver arriba)
 | Barra | `config/waybar/` o `config/ironbar/` (uso Ironbar activamente; Waybar queda de referencia) |
 | Launcher | `config/walker/` + `config/elephant/` (menús/providers en Lua y TOML) |
 | Notificaciones | `config/mako/` |
-| Terminal | `config/alacritty/`, `config/kitty/`, `config/fish/` y/o `config/zsh/`, `config/starship.toml` |
+| Terminal | `config/kitty/`, `config/fish/` y/o `config/zsh/`, `config/starship.toml` |
 | Herramientas CLI con tema propio | `config/bat/`, `config/yazi/` |
 | Bloqueo de pantalla / idle | `config/hypr/` (`hyprlock.conf` + `hypridle.conf` — sí, con niri; hyprlock/hypridle son standalone) |
 | Banner de shell | `config/fastfetch/` (`config.jsonc` + `ascii_art.txt`, el logo de la izquierda) |
@@ -52,6 +52,10 @@ install.sh  → instalador (ver arriba)
 
 `fish/` y `zsh/` son equivalentes e independientes — instalá el que uses, el otro no molesta si
 queda ahí sin usarse (ninguno se auto-invoca).
+
+Kitty es la terminal en uso (hubo una etapa con Alacritty en paralelo; se descartó porque el
+soporte de imágenes en las previews de Yazi/`chafa` rendía peor que en Kitty). No queda config
+de Alacritty en este repo.
 
 ## Animaciones de niri (elegirlas desde Walker)
 
@@ -76,7 +80,7 @@ derivada de esa imagen.
 
 Ese `output_path` (`~/.config/themes/matugen/...`) es contenido **generado**, así que no
 viene incluido en este repo — se recrea corriendo matugen con esta config. Varias apps
-(`waybar`, `ironbar`, `mako`, `bat`, `yazi`, `alacritty`, `kitty`, `gtk`, `qt5ct`/`qt6ct`,
+(`waybar`, `ironbar`, `mako`, `bat`, `yazi`, `kitty`, `gtk`, `qt5ct`/`qt6ct`,
 `swayosd`, `btop`) apuntan a ese archivo generado mediante un symlink en su propia carpeta de
 config — symlink que tampoco viene en el repo por lo mismo (apunta a algo que todavía no
 existe hasta que corras matugen la primera vez).
@@ -84,7 +88,7 @@ existe hasta que corras matugen la primera vez).
 ## Qué es específico de Arch/CachyOS
 
 La mayor parte de este repo es config de proyectos upstream (niri, waybar/ironbar, walker,
-mako, matugen, alacritty/kitty, starship, bat, yazi, btop, MangoHud, GTK, Qt, swayosd, micro):
+mako, matugen, kitty, starship, bat, yazi, btop, MangoHud, GTK, Qt, swayosd, micro):
 no le importa la distro, solo que el paquete esté instalado. Los puntos que sí asumen
 Arch/CachyOS son estos cuatro:
 
@@ -105,7 +109,7 @@ equivalente manual para Debian/Fedora/openSUSE.
 - **`weather-location.example`:** copiá a `~/.config/weather-location` con tus propias
   coordenadas (instrucciones adentro del archivo) — `install.sh` no lo pisa si ya existe.
 - **Dependencias:** `niri`, `matugen`, `waybar`/`ironbar`, `walker` + `elephant`, `mako`,
-  `hyprlock`, `hypridle`, `alacritty`, `fish` y/o `zsh`, `starship`, `zoxide`, `atuin`, `eza`,
+  `hyprlock`, `hypridle`, `kitty`, `fish` y/o `zsh`, `starship`, `zoxide`, `atuin`, `eza`,
   `bat`, `fzf`, `yazi`, `chafa`, `wl-clipboard`, `jq`, `fastfetch`.
 
 ## Qué NO está acá (a propósito)

@@ -58,12 +58,6 @@ output_path = "/home/anon/.config/themes/matugen/niri.kdl"
 input_path  = "/home/anon/.config/matugen/templates/kitty.conf"
 output_path = "/home/anon/.config/themes/matugen/kitty.conf"
 
-# Alacritty se conserva mientras dure la convivencia con kitty (migración 2026-08-07).
-# Se borra junto con el paquete, su template y ~/.config/alacritty.
-[templates.alacritty]
-input_path  = "/home/anon/.config/matugen/templates/alacritty.toml"
-output_path = "/home/anon/.config/themes/matugen/alacritty.toml"
-
 [templates.btop]
 input_path  = "/home/anon/.config/matugen/templates/btop.theme"
 output_path = "/home/anon/.config/themes/matugen/btop.theme"
