@@ -171,3 +171,25 @@ fallback = [
   { action = "menus:default", label = "entrar", bind = "Right", after = "AsyncClearReload" },
   { action = "menus:parent", label = "atrás", bind = "Left", after = "Nothing" },
 ]
+
+# ─── El selector de audio no respondía a Return/click (2026-08-25) ───
+#
+# EL PROBLEMA: el default de /etc/xdg/walker/config.toml para `wireplumber` no marca
+# ninguna acción como `default = true`. Verificado en pantalla: `Ctrl+D` (set_default_device)
+# SÍ cambia el sink (confirmado con `pactl get-default-sink`), pero Return o un click —el
+# gesto que activa todo lo demás en Walker, vía `single_click_activation`— no hacía nada.
+# Este override REEMPLAZA la lista entera (elephant no la mergea), así que repite las otras
+# cuatro acciones del default del paquete.
+#
+# `after = "Close"` en set_default_device (mismo día): con "Nothing" walker se quedaba
+# abierto tras aplicar el cambio, y la única señal de que algo pasó era el tilde ✓
+# moviéndose de fila — fácil de no ver. Cerrar al elegir es la misma semántica que
+# `desktopapplications.start` (abrir algo cierra el launcher); +volume/-volume/mute siguen
+# con "Nothing" porque ahí sí tiene sentido quedarse ajustando.
+wireplumber = [
+  { action = "set_default_device", label = "set default", default = true, bind = "Return", after = "Close" },
+  { action = "increase_volume", label = "+volume", bind = "ctrl y", after = "Nothing" },
+  { action = "decrease_volume", label = "-volume", bind = "ctrl n", after = "Nothing" },
+  { action = "mute", bind = "ctrl m", after = "Nothing" },
+  { action = "unmute", bind = "ctrl m", after = "Nothing" },
+]

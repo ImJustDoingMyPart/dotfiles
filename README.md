@@ -41,7 +41,7 @@ install.sh  → instalador (ver arriba)
 | Área | Config |
 |---|---|
 | Compositor | `config/niri/` (`config.kdl` + `cfg/*.kdl` + `animations/`) |
-| Barra | `config/waybar/` o `config/ironbar/` (uso Ironbar activamente; Waybar queda de referencia) |
+| Barra | `config/waybar/` o `config/ironbar/` (vuelta a Waybar activamente desde 2026-08-25; Ironbar queda instalado pero de referencia) |
 | Launcher | `config/walker/` + `config/elephant/` (menús/providers en Lua y TOML) |
 | Notificaciones | `config/mako/` |
 | Terminal | `config/kitty/`, `config/fish/` y/o `config/zsh/`, `config/starship.toml` |

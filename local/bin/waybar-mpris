@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Módulo custom de Waybar: reproducción actual, con scroll manual del título completo.
+#
+# Reemplaza al módulo nativo `mpris` el 2026-08-25 (a pedido de Roberto: quería que el
+# título recorra completo en vez de truncarse con "…"). Waybar no tiene marquee para
+# NINGÚN módulo (`rotate` gira la etiqueta entera 90/180/270°, no la desplaza; verificado
+# contra `man waybar` completo — no existe la palabra "marquee" en ningún man page de
+# 0.15.0). La única forma de recorrer texto es armar la ventana deslizante a mano y
+# reinyectarla en cada tick.
+#
+# Se probó también achicar el texto con un `<span size='…'>` (Pango markup SÍ se puede
+# embeber en el `format` de mpris — el propio man page lo hace con `<i>`) y se revirtió a
+# pedido de Roberto: la letra queda al 100%, igual que el resto de la barra.
+#
+# El estado (qué pista se está mostrando y en qué desplazamiento va) vive en un archivo,
+# porque cada tick de `interval` es un proceso nuevo — no hay memoria entre invocaciones
+# como sí la tiene el módulo nativo (que es un objeto C++ de vida larga).
+
+set -uo pipefail
+
+STATE="$HOME/.cache/waybar-mpris-marquee"
+VENTANA=42          # caracteres visibles a la vez
+SEPARADOR="   •   "  # entre el final y el reinicio del loop
+PASO=2              # caracteres que avanza el scroll por tick
+
+# `interval` quedó en 1s (no 0.5s): medido con `systemctl show -p CPUUsageNSec`, a 0.5s el
+# proceso pasaba de ~1% a >100% de un core — Waybar parece re-layoutear la barra ENTERA en
+# cada actualización de un módulo, no solo repintar ese label, y a 2 Hz eso se nota. A 1s
+# el costo vuelve a ser insignificante (~1%). PASO=2 compensa el intervalo más largo para
+# no perder velocidad de scroll (2 caracteres/segundo en los dos casos).
+
+esc() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
+
+# UNA sola llamada a playerctl (no cuatro): con `interval: 0.5` esto corre 2 veces por
+# segundo, y cada spawn de playerctl es una consulta D-Bus completa. \x1f (unit
+# separator, no imprimible) como delimitador porque un título de canción puede traer
+# perfectamente `-`, `|` o cualquier separador "seguro" habitual.
+IFS=$'\x1f' read -r status title artist album < <(
+  playerctl --player=playerctld metadata --format $'{{status}}\x1f{{title}}\x1f{{artist}}\x1f{{album}}' 2>/dev/null
+) || status=""
+
+if [[ -z "$status" ]]; then
+  # Nada reproduciéndose: igual que `format-stopped: ""` del módulo nativo, texto vacío.
+  jq -nc '{text: "", tooltip: ""}'
+  exit 0
+fi
+
+case "$status" in
+  Playing) icon="▶" ;;
+  Paused)  icon="⏸" ;;
+  *)       icon="" ;;
+esac
+
+# Mismo criterio que `dynamic-order` del módulo nativo: título y artista, separados por
+# " - ", omitiendo el artista si no vino.
+if [[ -n "$artist" ]]; then
+  combinado="$title - $artist"
+else
+  combinado="$title"
+fi
+
+# ── Ventana deslizante ──────────────────────────────────────────────────────────────
+largo=${#combinado}
+if (( largo <= VENTANA )); then
+  visible="$combinado"
+else
+  ciclo="${combinado}${SEPARADOR}"
+  ciclo_largo=${#ciclo}
+
+  prev_key=""
+  prev_off=0
+  if [[ -r "$STATE" ]]; then
+    IFS=$'\t' read -r prev_key prev_off < "$STATE" || true
+  fi
+
+  if [[ "$prev_key" == "$combinado" ]]; then
+    offset=$(( (prev_off + PASO) % ciclo_largo ))
+  else
+    offset=0
+  fi
+
+  # Ventana sobre el ciclo duplicado, para que el corte por el límite del string no rompa
+  # la sustracción — técnica estándar de marquee circular.
+  doble="${ciclo}${ciclo}"
+  visible="${doble:offset:VENTANA}"
+
+  printf '%s\t%s\n' "$combinado" "$offset" > "$STATE"
+fi
+
+texto="$icon $(printf '%s' "$visible" | esc)"
+
+tt_title=$(printf '%s' "$title" | esc)
+tt_artist=$(printf '%s' "$artist" | esc)
+tt_album=$(printf '%s' "$album" | esc)
+if [[ -n "$tt_album" ]]; then
+  tooltip="${tt_title}"$'\n'"${tt_artist} — ${tt_album}"
+else
+  tooltip="${tt_title}"$'\n'"${tt_artist}"
+fi
+
+jq -nc --arg text "$texto" --arg tooltip "$tooltip" '{text: $text, tooltip: $tooltip}'

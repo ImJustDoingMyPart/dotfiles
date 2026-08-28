@@ -1,0 +1,327 @@
+/* Walker — tema "base".
+ *
+ * Portado de nickjj/dotfriedrice (.config/walker/themes/base/style.css) sin cambios de
+ * estructura. Igual que el style.css de waybar, es AGNÓSTICO DE COLOR: todo sale de los
+ * cinco @define-color que declara theme.css, que es un symlink al tema activo
+ * (ver ~/.local/bin/theme-set).
+ *
+ * Este tema aporta SOLO la hoja de estilo. Los layouts XML (layout.xml, item.xml,
+ * preview.xml, keybind.xml y los item_<provider>.xml) se toman del tema "default" que
+ * instala el paquete en /etc/xdg/walker/themes/default/.
+ *
+ * Único cambio contra el original: la fuente. `monospace` acá resuelve a Noto Sans Mono,
+ * sin glifos Nerd Font; se usa JetBrainsMono Nerd Font, la misma de Alacritty y Waybar.
+ */
+
+@import "./theme.css";
+
+* {
+  all: unset;
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 14px;
+}
+
+popover {
+  background: lighter(@window_bg_color);
+  border: 1px solid darker(@accent_bg_color);
+  border-radius: 4px;
+  padding: 10px;
+}
+
+.normal-icons {
+  -gtk-icon-size: 16px;
+}
+
+.large-icons {
+  -gtk-icon-size: 32px;
+}
+
+scrollbar {
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+
+scrollbar:hover {
+  opacity: 1;
+}
+
+/* Borde en GRADIENTE de dos colores, igual que el focus-ring de las ventanas en niri
+ * (`active-gradient from=primary to=tertiary angle=45`). Así el launcher y la ventana
+ * enfocada se leen como la misma cosa en vez de como dos sistemas.
+ *
+ * El truco: DOS capas de fondo con recortes distintos. La de abajo es el gradiente
+ * recortado a `border-box` (ocupa hasta el borde exterior); la de arriba es el color
+ * sólido recortado a `padding-box` (arranca por dentro del borde). El borde se declara
+ * transparente, así que por esos 2px se ve la capa de abajo: el gradiente.
+ *
+ * Se hace así y no con `border-image` porque este método respeta `border-radius`, y
+ * border-image no.
+ *
+ * El original de dotfriedrice era `border: 1px solid darker(@accent_bg_color)`.
+ */
+.box-wrapper {
+  box-shadow:
+    0 19px 38px rgba(0, 0, 0, 0.3),
+    0 15px 12px rgba(0, 0, 0, 0.22);
+  padding: 20px;
+  border-radius: 4px;
+
+  border: 2px solid transparent;
+  background:
+    linear-gradient(@window_bg_color, @window_bg_color) padding-box,
+    linear-gradient(45deg, @accent_bg_color, @accent_alt_bg_color) border-box;
+}
+
+.preview-box,
+.elephant-hint,
+.placeholder {
+  color: @theme_fg_color;
+}
+
+.box {
+}
+
+.search-container {
+  border-radius: 4px;
+}
+
+.input placeholder {
+  opacity: 0.5;
+}
+
+.input selection {
+  background: lighter(lighter(lighter(@window_bg_color)));
+}
+
+.input {
+  caret-color: @theme_fg_color;
+  background: lighter(@window_bg_color);
+  padding: 10px;
+  color: @theme_fg_color;
+  /* inset, no un box-shadow normal: .search-container tiene overflow:hidden (layout.xml)
+   * y recorta cualquier sombra que salga del borde del widget. */
+  box-shadow: inset 0 0 0 0 transparent;
+  transition: box-shadow 100ms ease;
+}
+
+/* GtkEntry (Input en layout.xml) no es el widget con foco real — es un GtkText interno
+ * el que lo tiene. `:focus` sobre `.input` no dispara nunca; hace falta `:focus-within`,
+ * que en GTK4 se setea en TODOS los ancestros del widget enfocado (a diferencia de la
+ * spec CSS web, donde alcanza con el nodo). Verificado en pantalla: sin focus-within el
+ * anillo no aparece con el input abierto y activo por default. */
+.input:focus,
+.input:focus-within,
+.input:active {
+  box-shadow: inset 0 0 0 2px alpha(@accent_bg_color, 0.5);
+}
+
+.content-container {
+}
+
+.placeholder {
+}
+
+.scroll {
+}
+
+.list {
+  color: @theme_fg_color;
+}
+
+child {
+}
+
+.item-box {
+  border-radius: 4px;
+  padding: 10px;
+  transition:
+    background-color 100ms ease,
+    transform 100ms ease;
+}
+
+.item-quick-activation {
+  background: alpha(@accent_bg_color, 0.25);
+  border-radius: 5px;
+  padding: 10px;
+}
+
+/* child:hover .item-box, */
+child:selected .item-box,
+row:selected .item-box {
+  background: alpha(@accent_bg_color, 0.25);
+  transform: scale(1.02);
+}
+
+.item-text-box {
+}
+
+.item-subtext {
+  font-size: 12px;
+  opacity: 0.5;
+}
+
+.providerlist .item-subtext {
+  font-size: unset;
+  opacity: 0.75;
+}
+
+.item-image-text {
+  font-size: 28px;
+}
+
+.preview {
+  border: 1px solid alpha(@accent_bg_color, 0.25);
+  padding: 10px;
+  border-radius: 4px;
+  color: @theme_fg_color;
+}
+
+.calc .item-text {
+  font-size: 24px;
+}
+
+.calc .item-subtext {
+}
+
+.symbols .item-image {
+  font-size: 24px;
+}
+
+.todo.done .item-text-box {
+  opacity: 0.25;
+}
+
+.todo.urgent {
+  font-size: 24px;
+}
+
+.todo.active {
+  font-weight: bold;
+}
+
+.bluetooth.disconnected {
+  opacity: 0.5;
+}
+
+.preview .large-icons {
+  -gtk-icon-size: 64px;
+}
+
+.keybinds {
+  padding-top: 10px;
+  border-top: 1px solid lighter(@window_bg_color);
+  font-size: 12px;
+  color: @theme_fg_color;
+}
+
+.global-keybinds {
+}
+
+.item-keybinds {
+}
+
+.keybind {
+}
+
+.keybind-button {
+  opacity: 0.5;
+  transition: opacity 100ms ease;
+}
+
+.keybind-button:hover {
+  opacity: 0.75;
+}
+
+.keybind-bind {
+  text-transform: lowercase;
+  opacity: 0.35;
+}
+
+.keybind-label {
+  padding: 2px 4px;
+  border-radius: 4px;
+  border: 1px solid @theme_fg_color;
+}
+
+.error {
+  padding: 10px;
+  background: @error_bg_color;
+  color: @error_fg_color;
+}
+
+:not(.calc).current {
+  font-style: italic;
+}
+
+/* Eventos de HOY en negrita. walker agrega cada valor de `State` como clase CSS, que es
+ * el mecanismo que hay que usar porque NO habilita Pango markup en el texto de los items
+ * (un "<b>" ahí se ve literal). Ver menus/calendar.lua. */
+.today {
+  font-weight: bold;
+}
+
+/* ─── Animación de apertura (2026-08-28) ───
+ *
+ * La caja entra con fade + escala (0.92 → 1) en 180 ms. Solo APERTURA: al cerrar, la
+ * capa layer-shell se desmapea al instante y no queda nada del lado del cliente
+ * corriendo, así que un fade de salida es imposible.
+ *
+ * DOS MECANISMOS PARA LO MISMO, y hacen falta los dos (verificado en pantalla):
+ *
+ * 1. `animation` (@keyframes) dispara UNA sola vez, en el primer realize del widget.
+ *    Como walker corre como servicio y reusa la misma ventana, cubre la primera
+ *    apertura después de arrancar el servicio y ninguna más: probado con una
+ *    duración de 1200 ms, la 1ª apertura anima y la 2ª aparece de golpe.
+ *
+ * 2. `transition` colgada de `:focus-within` cubre todas las demás. El foco entra al
+ *    Input en cada apertura y se pierde al ocultarse la ventana, así que el estado
+ *    cambia de verdad en cada ciclo. Probado con 2000 ms: cinco aperturas seguidas
+ *    capturadas a los 300 ms dan la caja a 561–575 px de ancho contra los 599 px del
+ *    estado final. La primera tras reiniciar el servicio da 563 px (esa es la del
+ *    @keyframes).
+ *
+ * `:focus-within` y no `:focus` por lo mismo que en `.input` de más arriba: el foco
+ * real lo tiene el GtkText interno, y GTK4 marca `:focus-within` en TODOS sus
+ * ancestros — por eso `.box-wrapper`, que está a tres niveles, matchea.
+ *
+ * POR QUÉ ARRANCA EN 0.15 Y NO EN 0: el estado en reposo de la regla es el de la
+ * animación sin foco. Si alguna vez walker abriera sin foco de teclado, con 0 quedaría
+ * INVISIBLE (y no habría cómo darse cuenta: no se ve ni el blur, ver abajo). Con 0.15
+ * queda tenue pero usable. Hoy no debería pasar: `force_keyboard_focus = true` en
+ * config.toml pone la capa en modo exclusive.
+ *
+ * EL BLUR DEL FONDO NO ACOMPAÑA, y no hay manera de que lo haga:
+ *   · niri 26.04 no anima las capas layer-shell. Los nodos de `animations {}` son
+ *     window-open/close, workspace-switch, overview-open-close, etc. — ninguno aplica
+ *     a un layer (binario + doc oficial). Medido con `slowdown 8.0`: una ventana normal
+ *     cambia durante más de 1,2 s, y walker pasa de ausente a completo entre dos
+ *     capturas separadas 120 ms.
+ *   · Y el blur es BINARIO respecto del contenido: con `.box-wrapper { opacity: 0 }` no
+ *     hay blur en absoluto (la pantalla mide idéntica a walker cerrado) y con 0.35 ya
+ *     está a fuerza completa, igual que con 0.7. O sea que tampoco se puede levantar
+ *     gradualmente desde el CSS.
+ */
+@keyframes walker-open {
+  from {
+    opacity: 0.15;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.0);
+  }
+}
+
+.box-wrapper {
+  opacity: 0.15;
+  transform: scale(0.92);
+  transition:
+    opacity 180ms ease-out,
+    transform 180ms ease-out;
+  animation: walker-open 180ms ease-out;
+}
+
+.box-wrapper:focus-within {
+  opacity: 1;
+  transform: scale(1.0);
+}

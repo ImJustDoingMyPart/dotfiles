@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Módulo custom de Waybar: uso de RAM + tooltip de temperatura real de los DIMMs.
+#
+# Reemplaza al módulo nativo `memory` el 2026-08-25 (a pedido de Roberto): `memory` SÍ honra
+# `tooltip-format` (a diferencia de `cpu`, ver waybar-cpu), pero no existe un campo de
+# temperatura entre sus format replacements — RAM no tiene ese dato en absoluto vía el módulo
+# nativo. Sí lo tiene el sistema: los dos DIMM traen sensor SPD5118 (JEDEC, estándar en DDR5) y
+# `sensors` los expone como dos `spd5118-i2c-*` sueltos, sin agrupar.
+#
+# El % de uso replica la fórmula exacta de Waybar 0.15.0 (src/modules/memory/common.cpp):
+# `100 * (MemTotal - MemAvailable) / MemTotal`, división entera. No es una aproximación propia.
+
+set -euo pipefail
+
+find_hwmon_all() {
+  local want="$1" n d
+  for d in /sys/class/hwmon/hwmon*; do
+    n=$(cat "$d/name" 2>/dev/null) || continue
+    [[ "$n" == "$want" ]] && echo "$d"
+  done
+}
+
+memtotal=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+memavail=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)
+usage=$(( 100 * (memtotal - memavail) / memtotal ))
+
+temps=()
+for d in $(find_hwmon_all spd5118); do
+  [[ -r "$d/temp1_input" ]] || continue
+  temps+=( "$(( $(cat "$d/temp1_input") / 1000 ))" )
+done
+
+if (( ${#temps[@]} == 0 )); then
+  tooltip="RAM: sin sensor"
+else
+  # Un DIMM por entrada, en el orden que las resuelve el kernel (estable entre corridas
+  # mientras no se reordenen los módulos físicamente). "${temps[*]}" con IFS multi-char
+  # solo toma el PRIMER carácter para el join, así que se arma a mano.
+  joined="${temps[0]}°C"
+  for ((i = 1; i < ${#temps[@]}; i++)); do
+    joined="$joined / ${temps[i]}°C"
+  done
+  tooltip="RAM $joined"
+fi
+
+if   (( usage >= 92 )); then class="critical"
+elif (( usage >= 80 )); then class="warning"
+else                         class=""
+fi
+
+printf '{"text":"%s%%","percentage":%s,"class":"%s","tooltip":"%s"}\n' \
+  "$usage" "$usage" "$class" "$tooltip"

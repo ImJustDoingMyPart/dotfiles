@@ -81,15 +81,18 @@ window#waybar {
  * se acepta esa variación de un par de píxeles y se elimina la que sí era estructural.
  */
 
-#mpris,
+#custom-mpris,
 #tray,
 #custom-expand-icon,
-#cpu,
-#memory,
+#custom-cpu,
+#custom-memory,
 #custom-gpu,
 #pulseaudio,
 #clock,
 #custom-weather,
+#custom-weather-pad,
+#custom-date,
+#custom-date-pad,
 #custom-menu,
 #custom-notification,
 #custom-session {
@@ -98,18 +101,21 @@ window#waybar {
   padding: 0;
 }
 
-/* El relleno que centra el ':' del reloj va SIN margen ni padding: su ancho tiene que ser
- * exactamente el que emite `weather-forecast --pad`, ni un píxel más. Un margen acá se
- * sumaría a la cuenta y correría el reloj 16px a la derecha.
+/* ── Espejos invisibles del centrado (ver el docstring de `weather-forecast`) ─────────
  *
- * El selector `#clock` de la regla de arriba cubre las DOS instancias (`clock#date` y
- * `clock#time`): el sufijo `#nombre` de waybar se agrega como CLASE CSS, no como id, así
- * que el id sigue siendo `clock` en ambas. Para distinguirlas: `#clock.date` / `#clock.time`.
- * Hoy no hace falta — las dos quieren los mismos 8px por lado. */
-#custom-center-pad {
-  margin: 0;
-  padding: 0;
+ * Mismo margen que su original (heredado de la regla de arriba: los dos `-pad` están en
+ * esa lista junto a `#custom-weather`/`#custom-date`) — la simetría exige que el espejo
+ * pese lo mismo, margen incluido. Lo único que cambia acá es el color: por eso el texto
+ * ocupa su ancho pero no se ve. */
+#custom-weather-pad,
+#custom-date-pad {
+  color: transparent;
 }
+
+/* El selector `#clock` de la regla de arriba cubre las CUATRO instancias (`date`, `time`,
+ * `date-pad`): el sufijo `#nombre` de waybar se agrega como CLASE CSS, no como id, así que
+ * el id sigue siendo `clock` en todas. Para distinguirlas: `#clock.date` / `#clock.time` /
+ * `#clock.date-pad`. Todas quieren los mismos 8px por lado. */
 
 /* Bordes de la barra: la mitad, para que no quede un hueco raro contra el filo. */
 #custom-menu {
@@ -134,20 +140,70 @@ window#waybar {
 
 /* ── Estados ───────────────────────────────────────────────────────────────── */
 
-#cpu.warning,
-#memory.warning,
+#custom-cpu.warning,
+#custom-memory.warning,
 #custom-gpu.warning {
   color: @warning;
 }
 
-#cpu.critical,
-#memory.critical,
+#custom-cpu.critical,
+#custom-memory.critical,
 #custom-gpu.critical {
   color: @urgent;
 }
 
 #pulseaudio.muted {
   opacity: 0.5;
+}
+
+/* ── Jerarquía de color ────────────────────────────────────────────────────────
+ *
+ * Portado de Ironbar (ver la sección homónima de ~/.config/ironbar/style.css,
+ * 2026-08-25): antes acá todo pintaba de @foreground y @accent solo aparecía en el
+ * workspace activo — del esquema de once colores que arma matugen se aprovechaban dos.
+ * Ahora cada FAMILIA de módulos tiene su tono, así que la barra se lee por zonas sin
+ * separadores:
+ *
+ *   accent (primary)            -> el foco: hora, workspace activo, logo del menú
+ *   muted  (on_surface_variant) -> fecha y mpris: están, sin competir con la hora
+ *   third  (tertiary)           -> lecturas del entorno: volumen y clima
+ *   second (secondary)          -> indicadores de sistema: memoria, CPU, GPU
+ *   urgent (error)               -> apagar, la única acción destructiva de la barra
+ *   foreground                  -> notificaciones y workspaces inactivos (default,
+ *                                   no hace falta declararlo)
+ *
+ * Los tres acentos (primary/secondary/tertiary) salen del MISMO esquema Material You
+ * que genera matugen a partir del wallpaper, así que son armónicos entre sí por
+ * construcción. `#clock` sin sufijo pintaría las CUATRO instancias del reloj; acá se
+ * apunta `#clock.time` a propósito para no teñir la fecha ni sus espejos invisibles
+ * (que igual quedan con `color: transparent` de la regla de arriba, pero por prolijidad
+ * no conviene que compitan reglas por el mismo selector). */
+
+#clock.time,
+#custom-menu {
+  color: @accent;
+}
+
+/* mpris se sumó acá el 2026-08-25 (a pedido de Roberto): mismo tratamiento que la
+ * fecha, información secundaria que está sin competir con el resto. */
+#custom-date,
+#custom-mpris {
+  color: @muted;
+}
+
+#pulseaudio,
+#custom-weather {
+  color: @third;
+}
+
+#custom-memory,
+#custom-cpu,
+#custom-gpu {
+  color: @second;
+}
+
+#custom-session {
+  color: @urgent;
 }
 
 /* ── Tooltips ──────────────────────────────────────────────────────────────── */

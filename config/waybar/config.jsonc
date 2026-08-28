@@ -25,39 +25,46 @@
   "spacing": 0,
   "height": 24,
 
+  // `mpris`/`custom/mpris` se mudó acá el 2026-08-25 (a pedido de Roberto), a la derecha
+  // de los workspaces. Sigue INVISIBLE cuando no hay nada sonando (texto vacío, ver
+  // waybar-mpris) así que no ocupa lugar en reposo.
   "modules-left": [
     "custom/menu",
-    "niri/workspaces"
+    "niri/workspaces",
+    "custom/mpris"
   ],
-  // El centro es `fecha · hora · clima`, con el ':' del reloj clavado en el centro
-  // ABSOLUTO de la pantalla (x=960). Los cuatro módulos y su orden no son negociables:
-  // `custom/center-pad` es un relleno invisible sin el cual el centrado no se cumple.
-  // La aritmética completa está en el docstring de `weather-forecast`; el resumen es que
-  // el relleno mide lo que el clima le saca de ancho a la fecha.
+  // Centrado por SIMETRÍA DE ESPEJOS, igual que en Ironbar (ver el docstring de
+  // `weather-forecast`, sección "EL MODO --pad"): `custom/weather-pad` y `clock#date-pad`
+  // repiten el MISMO texto que `custom/weather` y `clock#date` con `color: transparent`
+  // en style.css. Miden igual por construcción (mismo script/mismo format), así que el
+  // ':' de `clock#time` cae en el centro sin ninguna cuenta que mantener.
   "modules-center": [
-    "custom/center-pad",
-    "clock#date",
+    "custom/weather-pad",
+    "custom/date",
     "clock#time",
-    "custom/weather"
+    "custom/weather",
+    "custom/date-pad"
   ],
   // Orden pedido por Roberto (2026-08-05), de izquierda a derecha:
   //   bandeja · volumen% · RAM% · GPU% · CPU% · notificaciones
   //
-  // `mpris` queda antes de la bandeja pero es INVISIBLE salvo que haya algo sonando
-  // (format-stopped = ""), así que no ocupa lugar en reposo.
-  //
   // SE QUITARON: `bluetooth`, `network` y `temperature`. Los dos primeros porque casi no
   // se usan y ensuciaban; el tercero porque el porcentaje de CPU ya dice lo que interesa.
   // Nada se pierde: bluetooth y red siguen a un Mod+Comma de distancia en el providerlist
-  // (`menus:network` y el provider `bluetooth`), y la temperatura sigue en el tooltip de
-  // la CPU y en btop.
+  // (`menus:network` y el provider `bluetooth`).
+  //
+  // `memory`/`cpu` pasaron a `custom/memory`/`custom/cpu` el 2026-08-25 (a pedido de
+  // Roberto): el módulo nativo `cpu` IGNORA `tooltip-format` por completo (verificado
+  // contra el binario 0.15.0 — arma su propio tooltip "Total/CoreN" y no lee esa clave),
+  // y ninguno de los dos módulos nativos tiene un campo de temperatura. Sin `custom` no
+  // hay forma de que el hover muestre la temperatura real en vez de ese texto fijo o
+  // nada. Ver `~/.local/bin/waybar-cpu` / `waybar-mem`.
   "modules-right": [
-    "mpris",
     "group/tray-expander",
     "pulseaudio",
-    "memory",
+    "custom/memory",
     "custom/gpu",
-    "cpu",
+    "custom/cpu",
     "custom/notification",
     "custom/session"
   ],
@@ -125,8 +132,10 @@
   //
   // Igual que en `custom/weather`: NO poner `escape: true`, o el markup se vería literal.
   //
-  // Sin margen: es una regla propia en style.css. Un margen acá desbalancearía la cuenta.
-  "custom/center-pad": {
+  // MISMO margen que `custom/weather` (style.css lo incluye en la lista compartida de
+  // 8px): la simetría exige que el espejo pese lo mismo que el original, margen incluido.
+  // Lo invisible lo hace `color: transparent` en style.css, no este módulo.
+  "custom/weather-pad": {
     "exec": "weather-forecast --pad",
     "interval": 900,
     "hide-empty-text": true,
@@ -134,46 +143,40 @@
   },
 
   // La fecha. Se separó del reloj el 2026-08-07 para poder poner la hora en el medio.
-  // Conserva TODO lo que tenía el módulo unificado: el grid del mes en el tooltip, el
-  // calendario de walker en el click derecho, y el scroll para cambiar de mes.
   //
-  // `%a %d %b` mide SIEMPRE 10 caracteres (3+1+2+1+3) en la locale clásica. Ese 10 es la
-  // constante `CELDAS_FECHA` de `weather-forecast`: cambiar este formato sin cambiar
-  // aquella descentra el reloj.
+  // Pasó de `clock#date` a `custom/date` el 2026-08-25: el módulo `clock` nativo de
+  // Waybar SIEMPRE renderiza en locale clásica (inglés) pase lo que pase con la locale
+  // del proceso — verificado entonces contra `man 5 waybar-clock` y `/proc/PID/environ`,
+  // no hay forma de sacarle español. `custom/date` en cambio corre `date(1)` de verdad,
+  // que sí hereda la locale del shell (`es_AR.utf8` acá, sin que haga falta forzar
+  // `LC_TIME`) y da "mar 25 ago" en vez de "Tue 25 Aug".
   //
-  // NO se pone `locale`: se probó con es_AR, es_AR.utf8 y es_AR.UTF-8 y NINGUNA cambia el
-  // idioma del `format`. El man page es claro en retrospectiva — esa opción está "intended
-  // to render times in custom timezones", o sea que aplica a los husos alternativos, no al
-  // formato principal. waybar lo renderiza con la locale clásica aunque el proceso tenga
-  // LC_TIME=es_AR.UTF-8 (verificado en /proc/PID/environ). Los días y meses quedan en
-  // inglés abreviado.
-  "clock#date": {
-    "format": "{:%a %d %b}",
+  // Se pierde el grid del mes en el tooltip nativo y el scroll-para-cambiar-de-mes de
+  // `clock` (un `custom` no tiene esas actions) — se acepta la pérdida a cambio de tener
+  // fecha en español, porque el calendario de verdad (con eventos de Google Calendar)
+  // ya vive en el popup de walker, que es estrictamente más útil que el grid offline.
+  //
+  // `%a %d %b` en es_AR.utf8 sigue midiendo 10 caracteres (3+1+2+1+3: "mar 25 ago",
+  // "dom 15 mar", "mié 12 nov"...) — comprobado con `date -d` sobre los 7 días de la
+  // semana. Ese 10 sigue siendo la constante `CELDAS_FECHA` de `weather-forecast`.
+  "custom/date": {
+    "exec": "date '+%a %d %b'",
     // Basta con el minuto: lo único que cambia acá es a medianoche.
     "interval": 60,
-    "tooltip": true,
-    "tooltip-format": "<tt><small>{calendar}</small></tt>",
-    // Click derecho: calendario en walker, misma superficie que volumen y red.
-    // El tooltip del hover sigue mostrando el grid de waybar; el menú suma la navegación
-    // por meses y sale en español, que el módulo clock no puede.
-    "on-click-right": "walker --provider menus:calendar",
-    "calendar": {
-      "mode": "month",
-      "weeks-pos": "right",
-      "on-scroll": 1,
-      "iso8601": true,
-      "format": {
-        "months": "<b>{}</b>",
-        "weeks": "<small>W{}</small>",
-        "weekdays": "<b>{}</b>",
-        "today": "<b><u>{}</u></b>"
-      }
-    },
-    "actions": {
-      "on-click-middle": "mode",
-      "on-scroll-up": "shift_up",
-      "on-scroll-down": "shift_down"
-    }
+    "tooltip": false,
+    // Izquierdo Y derecho abren el mismo popup — paridad con Ironbar (config.json:
+    // `clock-date` tiene `on_click_left` y `on_click_right` apuntando los dos acá).
+    "on-click": "walker --provider menus:calendar",
+    "on-click-right": "walker --provider menus:calendar"
+  },
+
+  // Espejo invisible de `custom/date`, del lado derecho del reloj — el otro lado de la
+  // simetría. MISMO `exec` que `custom/date` (así pesa igual, y no hay drift posible:
+  // mismo comando, mismo momento); sin tooltip ni clicks porque no se ve ni se toca.
+  "custom/date-pad": {
+    "exec": "date '+%a %d %b'",
+    "interval": 60,
+    "tooltip": false
   },
 
   // La hora, y los dos puntos separadores que la flanquean.
@@ -221,24 +224,36 @@
     "hide-empty-text": true,
     "interval": 900,
     "tooltip": true,
-    // Derecho: el pronóstico de la semana en walker, misma superficie que la agenda en el
-    // click derecho de la fecha. El tooltip del hover cubre el detalle de hoy.
+    // Izquierdo Y derecho: el pronóstico de la semana en walker — paridad con Ironbar
+    // (config.json: `weather` tiene `on_click_left` y `on_click_right` los dos acá). El
+    // tooltip del hover cubre el detalle de hoy.
+    "on-click": "walker --provider menus:weather",
     "on-click-right": "walker --provider menus:weather"
   },
 
-  "mpris": {
-    "format": "{status_icon} {dynamic}",
-    "format-stopped": "",
-    "status-icons": {
-      "playing": "▶",
-      "paused": "⏸"
-    },
-    "artist-len": 0,
-    "album-len": 0,
-    "title-len": 40,
-    // Sin on-click*: los defaults del módulo ya son play-pause / anterior / siguiente
-    // (izq / medio / der). `on-scroll-*` no está documentado para mpris en 0.15.0.
-    "tooltip-format": "{title}\n{artist} — {album}"
+  // `mpris` nativo → `custom/mpris` el 2026-08-25 (a pedido de Roberto). Primero se le
+  // sacó `position`/`length` de `dynamic-order` porque Waybar envuelve ese segmento en
+  // `<small>` de forma INCONDICIONAL (src/modules/mpris/mpris.cpp — sin clave de config
+  // para sacarlo) y encima no se actualizaba solo (con `interval: 0`, el default, el
+  // módulo solo se repinta ante eventos D-Bus, que la posición casi nunca dispara).
+  // Después pidió que el título recorra completo con scroll en vez de truncarse con "…".
+  // Waybar no tiene marquee para NINGÚN módulo (`rotate` gira la etiqueta entera, no la
+  // desplaza — no existe la palabra "marquee" en ningún man page de 0.15.0), y la única
+  // forma de recorrer texto es armar la ventana deslizante a mano, lo que exige control
+  // total del texto en cada tick — algo que un `format` estático no puede dar.
+  //
+  // `waybar-mpris` arma el título+artista y lo desliza en una ventana de 42 caracteres,
+  // 2 por tick (`interval: 1` → 2 caracteres/segundo). Se probó también un `<span
+  // size='…'>` para achicar el texto respecto del resto de la barra, y se revirtió (letra
+  // al 100%, igual que todo lo demás): quedaba mal a cualquier tamaño reducido.
+  "custom/mpris": {
+    "exec": "waybar-mpris",
+    "return-type": "json",
+    "format": "{}",
+    "interval": 1,
+    "on-click": "playerctl --player=playerctld play-pause",
+    "on-click-middle": "playerctl --player=playerctld previous",
+    "on-click-right": "playerctl --player=playerctld next"
   },
 
   // La bandeja va dentro de un drawer: normalmente se ve solo la flechita y se
@@ -261,9 +276,14 @@
     "tooltip": false
   },
 
+  // spacing entre íconos DENTRO del tray (gap interno de íconos individuales, no el
+  // margen del módulo contra sus vecinos, que sigue siendo el 8px por lado de style.css).
+  // Subido de 10 a 17 imitando el gap interno de Omarchy 3.8.4 (2026-08-25, a pedido de
+  // Roberto, quien probó y aprobó dejar el 16px uniforme de módulos intacto y tocar solo
+  // esto).
   "tray": {
     "icon-size": 14,
-    "spacing": 10
+    "spacing": 17
   },
 
   "pulseaudio": {
@@ -293,27 +313,23 @@
     "on-click": "kitty --class btop btop"
   },
 
-  "memory": {
+  // `states`/`tooltip-format` no existen para módulos `custom` — la clase warning/critical
+  // y el tooltip los arma el script (mismos umbrales que tenía el módulo nativo: 80/92).
+  // Ver el comentario largo junto a `modules-right` sobre por qué se necesitó el cambio.
+  "custom/memory": {
+    "exec": "waybar-mem",
+    "return-type": "json",
+    "format": "󰍛 {}",
     "interval": 5,
-    "format": "󰍛 {percentage}%",
-    "tooltip-format": "RAM {used:0.1f} / {total:0.1f} GiB\nSwap {swapUsed:0.1f} / {swapTotal:0.1f} GiB",
-    "states": {
-      "warning": 80,
-      "critical": 92
-    },
     "on-click": "kitty --class btop btop"
   },
 
-  "cpu": {
+  // Mismos umbrales que tenía el módulo nativo (80/95).
+  "custom/cpu": {
+    "exec": "waybar-cpu",
+    "return-type": "json",
+    "format": "󰘚 {}",
     "interval": 5,
-    "format": "󰘚 {usage}%",
-    // El módulo `temperature` se quitó de la barra; la temperatura del CPU sigue visible
-    // acá al pasar el mouse, y con detalle en btop (click).
-    "tooltip-format": "CPU: {usage}%\nLoad: {load}",
-    "states": {
-      "warning": 80,
-      "critical": 95
-    },
     "on-click": "kitty --class btop btop"
   }
 
