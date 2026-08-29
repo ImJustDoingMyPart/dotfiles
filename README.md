@@ -3,7 +3,7 @@
 Setup de escritorio para **[Niri](https://github.com/YaLTeR/niri)** (compositor tiling
 scrollable en Wayland), armado sobre CachyOS pero pensado para cualquier distro de
 **familia Arch** (ver más abajo qué tan atado está a eso, que es poco). Terminal minimalista
-(Kitty + Fish/Zsh + Starship), barra Waybar/Ironbar, launcher Walker + Elephant,
+(Kitty + Fish/Zsh + Starship), barra ~~Ironbar~~Waybar, launcher Walker + Elephant,
 notificaciones Mako, pantalla de bloqueo Hyprlock/Hypridle, y todo el theming generado
 dinámicamente desde el wallpaper con [matugen](https://github.com/InioX/matugen) (Material You).
 
