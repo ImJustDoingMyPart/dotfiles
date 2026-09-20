@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Cambia el preset de animaciones de Hyprland (presets en Lua).
+#
+# Uso:  hypr-animation <nombre-del-preset>    (sin .lua)
+#       hypr-animation --actual
+#       hypr-animation                       (lista disponibles)
+
+set -euo pipefail
+
+HYPR_DIR="$HOME/.config/hypr"
+ANIM_LINK="$HYPR_DIR/cfg/active-animation.lua"
+PACKS_DIR="$HYPR_DIR/animations"
+
+actual() {
+  if [[ -L "$ANIM_LINK" ]]; then
+    target=$(readlink "$ANIM_LINK")
+    basename "$target" .lua
+  else
+    echo "vertical"
+  fi
+}
+
+list_presets() {
+  current=$(actual)
+  while read -r file; do
+    name=$(basename "$file" .lua)
+    if [[ "$name" == "$current" ]]; then
+      echo "* $name"
+    else
+      echo "  $name"
+    fi
+  done < <(find "$PACKS_DIR" -name '*.lua' | sort)
+}
+
+case "${1:-}" in
+  --actual) actual; exit 0 ;;
+  "")
+    echo "uso: hypr-animation <preset> | --actual" >&2
+    list_presets >&2
+    exit 1
+    ;;
+esac
+
+preset="$1"
+
+if [[ ! -f "$PACKS_DIR/$preset.lua" ]]; then
+  echo "hypr-animation: no existe el preset '$preset'" >&2
+  exit 1
+fi
+
+# Backup del symlink anterior
+prev=$(readlink "$ANIM_LINK" 2>/dev/null || true)
+
+ln -sfn "../animations/$preset.lua" "$ANIM_LINK"
+
+if ! Hyprland --verify-config >/dev/null 2>&1; then
+  if [[ -n "$prev" ]]; then
+    ln -sfn "$prev" "$ANIM_LINK"
+  fi
+  echo "hypr-animation: '$preset' deja la config inválida, se revirtió" >&2
+  exit 1
+fi
+
+# `config-only`: sin eso el reload reaplica monitores y apaga la TV un instante (theme-reload).
+if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
+  hyprctl reload config-only >/dev/null 2>&1 || true
+fi
+
+echo "hypr-animation: activado '$preset'"

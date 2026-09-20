@@ -1,0 +1,18 @@
+/* Gruvbox Dark Medium — swaync.
+ *
+ * Versión curada del template de matugen (~/.config/matugen/templates/swaync.css): mismos
+ * roles y mismos comentarios, con los colores fijos de gruvbox. Si se toca la estructura
+ * allá, tocarla acá también.
+ *
+ * Los cuatro primeros son EXACTAMENTE los de walker.css de este tema: el launcher y el
+ * centro de notificaciones comparten paleta por construcción, no por coincidencia. Los dos
+ * últimos salen del bar.css de este mismo tema (#504945 de borde, #ea6962 de error), que
+ * es de donde ya salían para las otras superficies efímeras.
+ */
+
+@define-color window_bg_color #282828;
+@define-color accent_bg_color #83a598;
+@define-color accent_alt_bg_color #d3869b;
+@define-color theme_fg_color #bdae93;
+@define-color borders #504945;
+@define-color error_bg_color #ea6962;

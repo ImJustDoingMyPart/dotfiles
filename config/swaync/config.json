@@ -1,0 +1,168 @@
+{
+  "$schema": "/etc/xdg/swaync/configSchema.json",
+  "notification-grouping": true,
+  "control-center-width": 315,
+  "control-center-height": -1,
+  "fit-to-screen": false,
+  "layer-shell-cover-screen": true,
+  "notification-window-width": 300,
+  "transition-time": 250,
+  "text-empty": "Sin notificaciones",
+  "widgets": [
+    "menubar",
+    "volume",
+    "slider",
+    "notifications",
+    "buttons-grid"
+  ],
+  "widget-config": {
+    "menubar": {
+      "buttons#quick": {
+        "position": "left",
+        "actions": [
+          {
+            "label": "󰅶",
+            "type": "toggle",
+            "command": "caffeine toggle",
+            "update-command": "sh -c 'test $(caffeine status) = on && echo true || echo false'"
+          },
+          {
+            "label": "󰂛",
+            "type": "toggle",
+            "command": "swaync-client -d -sw",
+            "update-command": "swaync-client -D -sw"
+          }
+        ]
+      },
+      "menu#network": {
+        "label": "󰈀",
+        "position": "left",
+        "animation-type": "slide_down",
+        "actions": [
+          {
+            "label": "󰤨  Wi-Fi",
+            "type": "toggle",
+            "command": "swaync-network wifi-toggle",
+            "update-command": "swaync-network wifi-status"
+          },
+          {
+            "label": "󰈁  Cableada",
+            "type": "toggle",
+            "command": "swaync-network toggle 'Conexión cableada 1'",
+            "update-command": "swaync-network is-active 'Conexión cableada 1'"
+          },
+          {
+            "label": "󰤨  Casa de Siria",
+            "type": "toggle",
+            "command": "swaync-network toggle 'Casa de Siria'",
+            "update-command": "swaync-network is-active 'Casa de Siria'"
+          },
+          {
+            "label": "󰤨  FIBRA-WIFI6-5C62",
+            "type": "toggle",
+            "command": "swaync-network toggle 'FIBRA-WIFI6-5C62'",
+            "update-command": "swaync-network is-active 'FIBRA-WIFI6-5C62'"
+          },
+          {
+            "label": "󰤨  siria-5",
+            "type": "toggle",
+            "command": "swaync-network toggle 'siria-5'",
+            "update-command": "swaync-network is-active 'siria-5'"
+          }
+        ]
+      },
+      "menu#bluetooth": {
+        "label": "󰂯",
+        "position": "left",
+        "animation-type": "slide_down",
+        "actions": [
+          {
+            "label": "󰂯  Bluetooth",
+            "type": "toggle",
+            "command": "swaync-bluetooth toggle",
+            "update-command": "swaync-bluetooth status"
+          }
+        ]
+      },
+      "menu#audio": {
+        "label": "󰋋",
+        "position": "left",
+        "animation-type": "slide_down",
+        "actions": [
+          {
+            "label": "󰋋  Auriculares",
+            "type": "toggle",
+            "command": "swaync-audio-sink set alsa_output.pci-0000_12_00.6.analog-stereo",
+            "update-command": "swaync-audio-sink is-active alsa_output.pci-0000_12_00.6.analog-stereo"
+          },
+          {
+            "label": "󰟴  HDMI",
+            "type": "toggle",
+            "command": "swaync-audio-sink set alsa_output.pci-0000_03_00.1.hdmi-stereo-extra4",
+            "update-command": "swaync-audio-sink is-active alsa_output.pci-0000_03_00.1.hdmi-stereo-extra4"
+          }
+        ]
+      },
+      "menu#session": {
+        "label": "󰐥",
+        "position": "left",
+        "animation-type": "slide_down",
+        "actions": [
+          {
+            "label": "󰌾  Bloquear pantalla",
+            "command": "lock"
+          },
+          {
+            "label": "󰤄  Suspender",
+            "command": "systemctl suspend"
+          },
+          {
+            "label": "󰍃  Cerrar sesión",
+            "command": "uwsm stop"
+          },
+          {
+            "label": "󰜉  Reiniciar",
+            "command": "systemctl reboot"
+          },
+          {
+            "label": "󰐥  Apagar",
+            "command": "systemctl poweroff"
+          }
+        ]
+      }
+    },
+    "volume": {
+      "label": "󰕾",
+      "show-per-app": false
+    },
+    "notifications": {
+      "vexpand": false
+    },
+    "buttons-grid": {
+      "buttons-per-row": 1,
+      "actions": [
+        {
+          "label": "󰎟",
+          "command": "sh -c 'test $(swaync-client -c) = 0 || swaync-client -C'"
+        }
+      ]
+    },
+    "slider": {
+      "label": "󰖙",
+      "cmd_setter": "brightness-ddc-slider $value",
+      "cmd_getter": "brightness-ddc get",
+      "min": 0,
+      "max": 100,
+      "min_limit": 0,
+      "max_limit": 100,
+      "value_scale": 0
+    }
+  },
+  "notification-visibility": {
+    "agenda-silenciosa": {
+      "state": "muted",
+      "app-name": "^agenda$",
+      "category": "^agenda\\.silenciosa$"
+    }
+  }
+}

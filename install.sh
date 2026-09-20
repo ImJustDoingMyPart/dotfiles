@@ -64,17 +64,41 @@ done
 # zsh SIEMPRE lee ~/.zshenv de esa ruta fija (no de ZDOTDIR) — por eso va aparte
 # del loop de config/ y no dentro de config/zsh/, que sí sigue la regla general
 # y termina en ~/.config/zsh/.
-echo "-> zshenv en ~/.zshenv (fish no necesita este paso)"
-place "$REPO_DIR/zshenv" "$HOME/.zshenv"
+if [[ -f "$REPO_DIR/zshenv" ]]; then
+    echo "-> zshenv en ~/.zshenv (fish no necesita este paso)"
+    place "$REPO_DIR/zshenv" "$HOME/.zshenv"
+fi
 
-# niri (spawn) y matugen no expanden $HOME: algunos archivos traen la ruta
+# matugen y algunas configs no expanden $HOME: algunos archivos traen la ruta
 # absoluta de la máquina original. Se adapta al usuario real acá.
 if [[ "$HOME" != "/home/anon" ]]; then
     echo "-> adaptando rutas /home/anon a $HOME"
     if [[ "$MODE" == link ]]; then
-        targets=("$REPO_DIR/config/matugen/config.toml" "$REPO_DIR/config/niri/cfg/keybinds.kdl" "$REPO_DIR/config/fastfetch/config.jsonc" "$REPO_DIR/config/hypr/hyprlock.conf")
+        targets=(
+            "$REPO_DIR/config/matugen/config.toml"
+            "$REPO_DIR/config/fastfetch/config.jsonc"
+            "$REPO_DIR/config/hypr/hyprlock.conf"
+            "$REPO_DIR/config/hypr/cfg/binds.lua"
+            "$REPO_DIR/config/waybar/config.jsonc"
+            "$REPO_DIR/config/swaync/style.css"
+            "$REPO_DIR/config/gtk-3.0/bookmarks"
+            "$REPO_DIR/config/fish/config.fish"
+            "$REPO_DIR/config/qt5ct/qt5ct.conf"
+            "$REPO_DIR/config/qt6ct/qt6ct.conf"
+        )
     else
-        targets=("$HOME/.config/matugen/config.toml" "$HOME/.config/niri/cfg/keybinds.kdl" "$HOME/.config/fastfetch/config.jsonc" "$HOME/.config/hypr/hyprlock.conf")
+        targets=(
+            "$HOME/.config/matugen/config.toml"
+            "$HOME/.config/fastfetch/config.jsonc"
+            "$HOME/.config/hypr/hyprlock.conf"
+            "$HOME/.config/hypr/cfg/binds.lua"
+            "$HOME/.config/waybar/config.jsonc"
+            "$HOME/.config/swaync/style.css"
+            "$HOME/.config/gtk-3.0/bookmarks"
+            "$HOME/.config/fish/config.fish"
+            "$HOME/.config/qt5ct/qt5ct.conf"
+            "$HOME/.config/qt6ct/qt6ct.conf"
+        )
     fi
     for f in "${targets[@]}"; do
         [[ -f "$f" ]] && sed -i "s#/home/anon#$HOME#g" "$f"
@@ -90,6 +114,7 @@ fi
 echo "Listo. Pendiente a mano:"
 echo "  - Coordenadas reales en ~/.config/weather-location"
 echo "  - Instalar las dependencias listadas en el README"
+echo "  - Generar el tema inicial: 'theme-set gruvbox-dark-medium' o 'wallpaper-set <ruta-imagen>'"
 echo "  - Incluye fish/ Y zsh/ — usá el que tengas como shell, el otro no molesta"
 echo "  - Si no estás en Arch/CachyOS: revisar la sección del README sobre"
 echo "    fish/config.fish, zsh/.zshrc, el alias 'update' y desktop-orphans"

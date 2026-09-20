@@ -15,11 +15,19 @@
 # El estado (qué pista se está mostrando y en qué desplazamiento va) vive en un archivo,
 # porque cada tick de `interval` es un proceso nuevo — no hay memoria entre invocaciones
 # como sí la tiene el módulo nativo (que es un objeto C++ de vida larga).
+#
+# VENTANA se bajó de 42 a 18 el 2026-09-10 (ver el docstring largo junto a `modules-center`
+# en config.jsonc sobre por qué): el reloj no puede quedar clavado en el centro absoluto de
+# la pantalla si este módulo cambia de ancho en más de un puñado de píxeles al
+# arrancar/parar la música, porque waybar centra `modules-center` según el DESBALANCE entre
+# `modules-left` y `modules-right`, no según el ancho total de la pantalla. 18 caracteres
+# alcanza para la mayoría de los títulos sin scrollear, y cuando sí scrollea, el salto
+# entero (de "" a icono+18) es chico.
 
 set -uo pipefail
 
 STATE="$HOME/.cache/waybar-mpris-marquee"
-VENTANA=42          # caracteres visibles a la vez
+VENTANA=18          # caracteres visibles a la vez
 SEPARADOR="   •   "  # entre el final y el reinicio del loop
 PASO=2              # caracteres que avanza el scroll por tick
 

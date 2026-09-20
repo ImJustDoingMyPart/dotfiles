@@ -10,9 +10,9 @@
 #   tomó después, en :1.37. Qt5 no encontró bandeja y directamente no creó el ícono, y no
 #   vuelve a intentarlo cuando el watcher aparece más tarde.
 #
-# Por eso acá se espera al watcher antes de lanzar OpenRGB, en vez de confiar en el orden
-# de las líneas de autostart.kdl: niri las dispara en orden pero los procesos corren en
-# paralelo, así que el orden del archivo no garantiza nada.
+# Por eso acá se espera al watcher antes de lanzar OpenRGB, en vez de confiar en el orden de
+# arranque: los servicios de la sesión gráfica arrancan en paralelo, así que ningún orden
+# declarado garantiza que la bandeja ya exista.
 #
 # El timeout NO es un fallback cosmético: si por lo que sea no aparece ningún watcher,
 # igual conviene levantar OpenRGB. El perfil RGB importa más que el ícono, y en modo Direct

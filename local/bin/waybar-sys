@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Módulo custom de Waybar: CPU, RAM y GPU en un solo ícono.
+#
+# La barra muestra solo el glifo (velocímetro); los tres valores van al tooltip, en tres
+# renglones cortos alineados en columna. El ícono toma la clase más grave de las tres
+# (warning/critical), así que se tiñe cuando cualquiera se pasa de su umbral — el detalle
+# de cuál está en el hover.
+#
+# No recalcula nada: corre en paralelo waybar-cpu, waybar-mem y waybar-gpu, que siguen
+# siendo la fuente de cada valor y de cada umbral, y solo junta sus JSON. De cada tooltip
+# toma la temperatura más alta (la RAM trae una por DIMM).
+
+set -euo pipefail
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+waybar-cpu >"$tmp/cpu" &
+waybar-mem >"$tmp/mem" &
+waybar-gpu >"$tmp/gpu" &
+wait
+
+jq -cs '
+  def temp: [.tooltip | scan("[0-9]+(?=°C)") | tonumber] | max // null;
+  def row($n): "\($n)  \(.percentage | tostring | "   "[length:] + .)%  "
+               + (if temp then "\(temp)°" else "–" end);
+  def rank: {"critical": 2, "warning": 1}[.class] // 0;
+  (map(rank) | max) as $r
+  | {
+      text: "󰓅",
+      class: (["", "warning", "critical"][$r]),
+      tooltip: ([(.[0] | row("CPU")), (.[1] | row("RAM")), (.[2] | row("GPU"))]
+                | join("\n"))
+    }
+' "$tmp/cpu" "$tmp/mem" "$tmp/gpu"

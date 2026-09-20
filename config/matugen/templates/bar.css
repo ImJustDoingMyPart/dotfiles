@@ -1,7 +1,10 @@
-/* Template de matugen -> ~/.config/themes/matugen/waybar.css
+/* Template de matugen -> ~/.config/themes/matugen/bar.css
  *
- * Esto genera el theme.css que importa ~/.config/waybar/style.css. Solo declara
- * colores: la estructura visual vive en style.css y no sabe de qué tema viene.
+ * Esto genera el theme.css que importan TANTO ~/.config/waybar/style.css COMO
+ * ~/.config/ironbar/style.css (Waybar se readoptó el 2026-08-25; Ironbar sigue acá
+ * hasta que se desinstale). Solo declara colores: la estructura visual vive en cada
+ * style.css y no sabe de qué tema viene — por eso un solo archivo alcanza para las dos
+ * barras a la vez.
  *
  * CUIDADO al editar: el motor de matugen NO distingue comentarios. Un placeholder
  * de ejemplo escrito dentro de un bloque de comentario se intenta renderizar igual
@@ -21,7 +24,15 @@
 
 @define-color accent  {{colors.primary.default.hex}};
 @define-color urgent  {{colors.error.default.hex}};
-@define-color warning {{colors.tertiary.default.hex}};
+
+/* warning comparte fuente con urgent A PROPÓSITO (2026-08-25, a pedido de Roberto): el
+ * mismo rojo destructivo del botón de power. Antes tomaba `colors.tertiary`, que es la
+ * MISMA fuente que `third` (ver más abajo) — un resabio de cuando `third` no existía
+ * todavía, que dejaba el estado warning idéntico a clima/volumen en vez de a algo que
+ * lea como alerta. Consecuencia aceptada: warning y critical/urgent quedan con el MISMO
+ * color (a diferencia de la barra de cuota de Claude Code, arriba en [config], que sí
+ * necesita tres tonos distinguibles y por eso usa custom_colors en vez de roles M3). */
+@define-color warning {{colors.error.default.hex}};
 
 @define-color tooltip        {{colors.surface_container.default.hex}};
 @define-color tooltip-border {{colors.outline_variant.default.hex}};
@@ -36,3 +47,4 @@
 @define-color second   {{colors.secondary.default.hex}};
 @define-color third    {{colors.tertiary.default.hex}};
 @define-color elevated {{colors.surface_container_high.default.hex}};
+@define-color on-accent {{colors.on_primary.default.hex}};

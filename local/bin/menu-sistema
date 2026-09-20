@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Lanzador del índice de configuración del escritorio (rofi, modo `system-index`).
+#
+# Uso:  menu-sistema [estado]     (por defecto "top"; p. ej. `menu-sistema cat:appearance`)
+#
+# ─── Por qué existe, si es un solo comando ───
+#
+# Porque lo comparten dos binds (Mod+Comma y Mod+Shift+Y, ver hypr/cfg/binds.lua) y la
+# fila de vuelta del selector de fondos: escrito en cada lugar serían copias de una
+# línea larga que se desincronizan. Acá hay una sola. (Mod+Y no abre este menú: abre
+# ~/.local/bin/fondos-selector, que es otro rofi.)
+#
+# ─── Las tres cosas que no son obvias ───
+#
+# `-pid` propio: no lo necesita hoy —hay un solo rofi por vez— pero cuesta nada y
+# evita que este menú y el de Mod+Space se peleen el pidfile si se abren pisados.
+#
+# `env -u ROFI_OUTSIDE`: rofi exporta esa variable a todo lo que lanza, los scripts
+# de modo incluidos, y se niega a arrancar si la ve ("Do not launch rofi from inside
+# rofi.", por stderr, que en un mode script no se ve).
+#
+# ─── Los `-kb-*` ───
+#
+# Las flechitas: Right entra y Left vuelve. Por eso hay que DESALOJARLAS antes: de
+# fábrica Left y Right pelados mueven el cursor dentro del texto
+# (kb-move-char-back/forward), y rofi rechaza una tecla atada a dos acciones. Se les
+# deja solo Control+b/Control+f, que es el otro binding que ya traían. Left va por
+# custom-1, que es el único camino para que una tecla vuelva AL SCRIPT en vez de
+# resolverse dentro de rofi (llega como ROFI_RETV=10, y el script además emite
+# `use-hot-keys`).
+#
+# `-eh 2` (alto de fila = 2 líneas) es propio de este menú: sus filas son de dos
+# líneas (título + subtexto). Sin él el listview reserva alto de una sola línea y
+# corta el subtexto. No va en config.rasi porque drun/calc/dmenu son de una línea.
+#
+# ─── Acá NO se pisa el tamaño de ícono, y conviene saber por qué ───
+#
+# El tamaño vive en layout.rasi (`element-icon { size }`) y este lanzador no lo toca.
+# Hubo un `-theme-str 'element-icon { size: 46px; }'` y se sacó: agrandaba la tarjeta
+# entera para beneficiar a una sola hoja.
+#
+# El dato que hay que tener a mano si se vuelve a intentar: **hasta 38px el ícono sale
+# gratis**. El alto de fila es `max(alto del ícono, alto del texto) + padding`, y con
+# `-eh 2` el texto ya reserva ~38px, así que cualquier ícono que entre ahí no mueve
+# nada. Medido en pantalla: a 24px la tarjeta mide 449px, a 46px pasa a 500px y a 56px
+# a 570px. El salto empieza cuando el ícono supera al texto, no antes.
+#
+# Y el motivo por el que se intentó: el selector de fondos era una hoja de este índice y
+# sus miniaturas usaban el MISMO `element-icon` que el resto — rofi lo lee una vez por
+# fila al crearla (`icon_create()`), así que ninguna hoja puede tener el suyo. Salió por
+# otro lado: el selector es hoy otro proceso con su propio tema (fondos-selector).
+#
+# Si algún día vuelve a tocarse: va acá y NO en layout.rasi, porque en drun y calc las
+# filas son de UNA línea y ahí el ícono sí fija el alto.
+
+set -u
+
+script="$HOME/.config/rofi/scripts/system-index"
+pidfile="${XDG_RUNTIME_DIR:-/tmp}/rofi-sistema.$$.pid"
+
+ROFI_INFO="${1:-top}" \
+    env -u ROFI_OUTSIDE -u ROFI_RETV -u ROFI_DATA \
+    rofi -pid "$pidfile" -show system-index -modes "system-index:$script" -no-sort \
+         -eh 2 \
+         -kb-move-char-back Control+b \
+         -kb-move-char-forward Control+f \
+         -kb-accept-entry Control+j,Control+m,Return,KP_Enter,Right \
+         -kb-custom-1 Left
+
+rm -f "$pidfile"

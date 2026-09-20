@@ -44,15 +44,13 @@ quota_crit = { color = "#e53935", blend = true }
 input_path  = "/home/anon/.config/matugen/templates/bar.css"
 output_path = "/home/anon/.config/themes/matugen/bar.css"
 
-[templates.walker]
-input_path  = "/home/anon/.config/matugen/templates/walker.css"
-output_path = "/home/anon/.config/themes/matugen/walker.css"
+[templates.rofi]
+input_path  = "/home/anon/.config/matugen/templates/rofi.rasi"
+output_path = "/home/anon/.config/themes/matugen/rofi.rasi"
 
-
-
-[templates.niri]
-input_path  = "/home/anon/.config/matugen/templates/niri.kdl"
-output_path = "/home/anon/.config/themes/matugen/niri.kdl"
+[templates.hyprland]
+input_path  = "/home/anon/.config/matugen/templates/hyprland.lua"
+output_path = "/home/anon/.config/themes/matugen/hyprland.lua"
 
 [templates.kitty]
 input_path  = "/home/anon/.config/matugen/templates/kitty.conf"
@@ -77,9 +75,14 @@ output_path = "/home/anon/.config/themes/matugen/claude.conf"
 input_path  = "/home/anon/.config/matugen/templates/starship-palette.toml"
 output_path = "/home/anon/.config/themes/matugen/starship.toml"
 
-[templates.mako]
-input_path  = "/home/anon/.config/matugen/templates/mako"
-output_path = "/home/anon/.config/themes/matugen/mako"
+# Centro de notificaciones. Genera SOLO los colores: la estructura vive en
+# ~/.config/swaync/style.css, que los importa por el symlink que mueve theme-set. Mismo
+# reparto que la barra, y no el de swayosd (donde el template es el archivo entero),
+# porque acá la hoja de estructura son 580 líneas que no cambian con el tema y
+# duplicarlas en cada tema curado sería insostenible.
+[templates.swaync]
+input_path  = "/home/anon/.config/matugen/templates/swaync.css"
+output_path = "/home/anon/.config/themes/matugen/swaync.css"
 
 # Pantalla de bloqueo. Desde la migración a hyprlock (2026-08-13) el template genera SOLO
 # los colores: la estructura vive en ~/.config/hypr/hyprlock.conf, que lo trae con `source`.
@@ -88,8 +91,8 @@ output_path = "/home/anon/.config/themes/matugen/mako"
 input_path  = "/home/anon/.config/matugen/templates/hyprlock.conf"
 output_path = "/home/anon/.config/themes/matugen/hyprlock.conf"
 
-# OSD de volumen y brillo. Usa los MISMOS roles que mako a propósito: son las dos
-# superficies efímeras del escritorio y tienen que verse como una sola familia.
+# OSD de volumen y brillo. Usa los MISMOS roles que el toast de swaync a propósito: son las
+# dos superficies efímeras del escritorio y tienen que verse como una sola familia.
 [templates.swayosd]
 input_path  = "/home/anon/.config/matugen/templates/swayosd.css"
 output_path = "/home/anon/.config/themes/matugen/swayosd.css"
@@ -146,3 +149,10 @@ output_path = "/home/anon/.config/themes/matugen/vesktop.css"
 input_path  = "/home/anon/.config/matugen/templates/antigravity.json"
 output_path = "/home/anon/.config/themes/matugen/antigravity.json"
 post_hook   = "/home/anon/.local/bin/theme-antigravity-apply"
+
+# Antigravity IDE (VS Code). Inyecta workbench.colorCustomizations en settings.json.
+[templates.antigravity-ide]
+input_path  = "/home/anon/.config/matugen/templates/antigravity-ide.json"
+output_path = "/home/anon/.config/themes/matugen/antigravity-ide.json"
+post_hook   = "/home/anon/.local/bin/theme-antigravity-ide-apply"
+

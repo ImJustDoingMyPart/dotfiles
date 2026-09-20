@@ -1,0 +1,309 @@
+@import "./colors.rasi"
+
+/* LA FORMA. Minimalista a propósito, igual criterio que el tema "base" de walker:
+ * se resetea todo con `all: unset` y se declara cada elemento a mano en vez de
+ * heredar el default de rofi. Cada propiedad de acá está en rofi-theme(5) del
+ * binario instalado (rofi 2.0.0) — lo que no está documentado ahí, no se escribe. */
+
+/* Mismo tamaño que walker, y en la misma unidad: su style.css declara
+ * `font-size: 14px` en el `*`. Pango acepta el sufijo "px" en la descripción de
+ * fuente (tamaño absoluto en unidades de dispositivo), así que no hay que
+ * convertir a puntos ni depender del DPI para que coincidan. */
+* {
+    font: "JetBrainsMono Nerd Font 14px";
+}
+
+/* ─── La ventana es la tarjeta, y por qué dejó de ser un velo ───
+ *
+ * Antes esto era un velo a pantalla completa (`fullscreen: true`) con la tarjeta centrada
+ * adentro por cuatro cajas vacías, porque el compositor anterior difuminaba toda la
+ * superficie y una del tamaño de la tarjeta casi no mostraba blur.
+ *
+ * En Hyprland eso no aplica: la layer-rule de rofi (`cfg/rules.lua`) lleva
+ * `ignore_alpha = 0.5`, o sea que NO difumina los píxeles con alfa por debajo de 0,5 —
+ * exactamente el velo. El blur ya estaba recortado a la tarjeta, y el velo solo aportaba
+ * superficie invisible.
+ *
+ * Y aportaba un problema: con la ventana a pantalla completa su alto NUNCA cambia, y
+ * rofi solo rehace el layout cuando el alto calculado difiere del actual
+ * (`view.c:884`). O sea que la tarjeta quedaba congelada con el tamaño del primer
+ * estado y no se podía ajustar a la cantidad de filas de cada menú. Sin fullscreen, rofi
+ * redimensiona en cada recarga y la tarjeta mide lo que tiene que medir. */
+window {
+    background-color: transparent;
+    padding: 0;
+    width: 600px;
+    children: [ mainbox ];
+}
+
+/* La tarjeta, y la ÚNICA capa que pinta @background. Todo lo que va adentro es
+ * transparent: los alfas se apilan, y tres capas al 0,95 ya dan un opaco.
+ *
+ * ─── El anillo es un `border` de verdad, y ya no cuatro tiras ───
+ *
+ * Antes el borde eran cuatro cajas vacías de 2px (una por lado) alrededor de la tarjeta,
+ * recortadas por el `border-radius` del padre. Servían para imitar el degradé del borde de
+ * ventana de Hyprland, porque `border-color` NO admite un gradiente: en 2.0.0
+ * `border-color: linear-gradient(...)` PARSEA sin error pero no pinta nada — inerte, el
+ * mismo caso que `scrollbar handle { background-image }`. Verificado en pantalla.
+ *
+ * Pero una tira recta tiene techo geométrico. Solo cubre el arco de la esquina mientras
+ *
+ *     radio <= grosor / (1 - 1/raíz(2))  ~=  3,41 × grosor
+ *
+ * y con tiras de 2px eso da un radio máximo de ~6,8 (de ahí salía el 6 de antes, al filo).
+ * Pasado ese punto el arco se mete hacia adentro más de lo que la tira cubre — 3,5px con
+ * radio 12 — y el anillo queda ABIERTO en la diagonal de las cuatro esquinas: se ve el
+ * fondo entre la tira de arriba y la del costado. Ese era el "borde roto".
+ *
+ * Un `border` uniforme sí se traza sobre el contorno redondeado (cairo lo hace como un
+ * stroke del path, no como cuatro rectángulos), así que cierra el anillo con CUALQUIER
+ * radio y sin depender del grosor. El precio es el degradé: queda sólido en @accent.
+ *
+ * Ojo: esto vale para el borde uniforme. Un borde de UN SOLO lado (el de la fila elegida,
+ * `element selected.normal`) se sigue trazando recto e ignora el radio.
+ *
+ * ─── El radio es el de las ventanas, y por eso es ese número ───
+ *
+ * `border-radius` acá es el canto EXTERIOR del anillo. Hyprland dibuja su borde por fuera
+ * de la ventana, así que `rounding = 4` + `border_size = 2` da 6 afuera y 4 adentro: 6 es
+ * el número que hace que la tarjeta se lea igual que cualquier ventana enfocada. Si cambia
+ * `decoration:rounding` o `general:border_size`, este valor los sigue.
+ *
+ * A este radio las cuatro tiras también cerrarían (6 < 6,8), o sea que el degradé bicolor
+ * es recuperable si alguna vez se lo quiere de vuelta; se eligió el borde uniforme por
+ * simple y porque no depende de estar al filo del techo geométrico. */
+mainbox {
+    expand: true;
+
+    /* "message" tiene que estar: ahí muestra rofi-calc el resultado ("Result: ...").
+     * Sin él en la lista, el widget ni se dibuja — no es un problema de color. */
+    children: [ inputbar, message, listview ];
+    spacing: 8px;
+
+    background-color: @background;
+    border: 2px;
+    border-color: @accent;
+    border-radius: 6px;
+
+    /* El padding del marco de texto va ACÁ, nunca en `window`. Con `window { padding }`
+     * rofi calculaba el alto sumando el padding de arriba pero no el de abajo: la última
+     * fila del listview quedaba cortada contra el borde y no había aire. Se vio en TODOS
+     * los modos (drun también, con filas de una sola línea): el déficit era constante e
+     * igual al padding. */
+    padding: 14px;
+}
+
+inputbar {
+    children: [ prompt, textbox-prompt-colon, entry ];
+    background-color: @background-alt;
+    text-color: @foreground;
+    border-radius: 4px;
+    padding: 8px 12px;
+    spacing: 6px;
+}
+
+prompt {
+    text-color: @accent;
+    background-color: transparent;
+}
+
+textbox-prompt-colon {
+    text-color: @foreground-alt;
+    background-color: transparent;
+    str: "›";
+    expand: false;
+}
+
+/* background-color explícito y transparent: sin esta línea entry no tenía NINGUNA
+ * background-color (ausente del todo en `-dump-theme`) y caía al blanco de fábrica de
+ * rofi. Transparent y no @background-alt: ese es un velo con alfa, y pintado dos veces
+ * (inputbar + entry) el campo de texto se vería más claro que el resto de la barra. */
+entry {
+    text-color: @foreground;
+    background-color: transparent;
+    placeholder: "Buscar…";
+    placeholder-color: @foreground-alt;
+    cursor: text;
+    cursor-color: @accent;
+}
+
+listview {
+    background-color: transparent;
+    /* 6 = las filas del menú raíz. El alto de la tarjeta es SIEMPRE este, no el del
+     * menú que esté abierto: que cambie de tamaño al navegar marea más de lo que
+     * molesta un hueco. Si cambian las filas de la raíz, este número cambia con ellas
+     * — y también el umbral del scrollbar en `system-index` (busca "filas_reales"). */
+    lines: 6;
+    spacing: 4px;
+    scrollbar: true;
+    /* Alto constante = `lines` filas, en todos los menús. Es una decisión, no una
+     * limitación: rofi 2.0.0 SÍ puede ajustar la tarjeta a cada menú, con
+     * `fixed-height: false` + `dynamic: false` (así lo resuelve
+     * `listview_get_desired_height()`: MIN(lines, TOTAL de entradas del modo); con
+     * `dynamic: true`, que es el default, sería el total FILTRADO y la tarjeta
+     * cambiaría de tamaño en cada tecla del buscador).
+     *
+     * Se probó en pantalla y se descartó: la tarjeta saltaba de tamaño en cada paso de
+     * navegación. Con alto fijo el hueco solo se ve en los menús más cortos que la
+     * raíz, y a cambio la tarjeta no se mueve nunca.
+     *
+     * Ojo si se vuelve a intentar: apagar `fixed-height` A SECAS no sirve. Con
+     * `dynamic` en true y el alto en cero —el caso al crear la vista, cuando todavía no
+     * hay filas— esa misma función devuelve 0 para esconder el widget entero, y la
+     * tarjeta arranca colapsada en la barra de búsqueda. */
+    fixed-height: true;
+    border: 0;
+}
+
+/* El modelo de swaync: degradé (`accent_bg_color` primary -> `accent_alt_bg_color`
+ * tertiary) en el "highlight" — la porción YA RECORRIDA del trough, tipo barra de
+ * progreso — trough sin recorrer mudo, y la perilla en un color SÓLIDO (accent_alt_bg_color
+ * a secas, sin degradé). El scrollbar de rofi no tiene ese tercer elemento ("cuánto se
+ * recorrió"): es riel + handle nomás.
+ *
+ * Primer intento: degradé pleno en el riel entero, handle sólido oscuro encima. Quedó
+ * INVERTIDO — vivo donde swaync lo tiene mudo (el riel/trough), mudo donde swaync lo
+ * tiene vivo (la perilla). Corregido: el riel lleva el mismo degradé pero ATENUADO
+ * (alfa 0x30 ~19%, ver colors.rasi) para que lea oscuro como el trough y aun así venga
+ * de los colores de matugen, y el handle es sólido en @accent-alt — mismo color que la
+ * perilla de swaync — para que sea lo único vívido, como en el original.
+ *
+ * rofi-theme(5) documenta un estado "handle" para el scrollbar ("the scrollbar uses the
+ * handle state when drawing the small scrollbar handle"), pero probado en pantalla
+ * `scrollbar handle { background-image: ... }` es inerte — rofi lo parsea sin error
+ * (sale en `-dump-theme`) y al renderizar el handle sigue siendo el color plano de
+ * `handle-color`. Por eso el handle no puede llevar SU PROPIO degradé — no es una
+ * limitación de diseño, es que la propiedad no existe.
+ *
+ * @scrollbar-gradient (no @accent/@accent-alt sueltos acá) por la misma restricción que
+ * @accent-soft: una Referencia no se puede combinar con otro token, y los stops de un
+ * linear-gradient son justo eso. La variable ya viene armada entera (y atenuada) desde
+ * colors.rasi. */
+scrollbar {
+    width: 4px;
+    handle-width: 8px;
+    border-radius: 4px;
+    handle-rounded-corners: true;
+    background-color: transparent;
+    background-image: @scrollbar-gradient;
+    handle-color: @accent-alt;
+}
+
+element {
+    padding: 6px 10px;
+    border-radius: 4px;
+    orientation: horizontal;
+    children: [ element-icon, element-text ];
+    spacing: 8px;
+    cursor: pointer;
+}
+
+/* horizontal-align acá es lo que centra la miniatura DENTRO de su celda cuando la
+ * imagen no es cuadrada (todos los fondos son panorámicos). Sin esto rofi la
+ * dejaba pegada a un lado — el mismo defecto que walker nunca corrigió ("otra vez,
+ * como en walker", 2026-09-08). vertical-align ya estaba, hacía falta el par. */
+element-icon {
+    size: 24px;
+    vertical-align: 0.5;
+    horizontal-align: 0.5;
+    background-color: transparent;
+}
+
+element-text {
+    vertical-align: 0.5;
+    text-color: inherit;
+    background-color: transparent;
+    highlight: @accent-alt;
+}
+
+/* transparent explícito: sin declarar el estado, rofi pinta el relleno claro de fábrica.
+ * No @background, que ya lo pinta mainbox — repetido se apilaría el alfa. */
+element normal.normal {
+    background-color: transparent;
+    text-color: @foreground;
+}
+
+element normal.urgent {
+    background-color: transparent;
+    text-color: @urgent;
+}
+
+element normal.active {
+    background-color: transparent;
+    text-color: @accent-alt;
+}
+
+/* El tratamiento de walker: la fila elegida se TIÑE del acento al 25%
+ * (`row:selected .item-box { background: alpha(@accent_bg_color, 0.25) }`) y el texto
+ * no cambia de color. @accent-soft es ese mismo acento con el alfa ya pegado desde el
+ * template de matugen, porque rofi no compone alfa sobre una referencia (`@accent / 25%`
+ * no parsea). La barrita de acento a la izquierda reemplaza al `transform: scale(1.02)`
+ * de walker, que no existe en rofi-theme(5). */
+element selected.normal {
+    background-color: @accent-soft;
+    text-color: @foreground;
+    border: 0px 0px 0px 2px;
+    border-color: @accent;
+}
+
+element selected.urgent {
+    background-color: @urgent;
+    text-color: @urgent-fg;
+}
+
+element selected.active {
+    background-color: @accent-alt;
+    text-color: @background;
+}
+
+/* Sin franjas: mismo tratamiento que "normal" para las filas "alternate"
+ * (rofi las alterna por defecto; sin esto la mitad cae al blanco de fábrica). */
+element alternate.normal {
+    background-color: transparent;
+    text-color: @foreground;
+}
+
+element alternate.urgent {
+    background-color: transparent;
+    text-color: @urgent;
+}
+
+element alternate.active {
+    background-color: transparent;
+    text-color: @accent-alt;
+}
+
+message {
+    background-color: @background-alt;
+    border-radius: 4px;
+    padding: 8px;
+    margin: 8px 0px 0px 0px;
+}
+
+/* Los que siguen cuelgan de un padre ya coloreado (message, error-message, inputbar),
+ * así que "transparent" acá sí funciona — pero se declara igual: sin la propiedad
+ * rofi no los deja invisibles, los pinta del claro de fábrica. */
+textbox {
+    text-color: @foreground;
+    background-color: transparent;
+}
+
+error-message {
+    background-color: transparent;
+    text-color: @urgent;
+    padding: 8px;
+    border-radius: 4px;
+}
+
+/* Inertes hoy: no están en `children` de inputbar. Se dejan declarados por si se
+ * agregan más adelante, ya con su color. */
+case-indicator {
+    text-color: @foreground-alt;
+    background-color: transparent;
+}
+
+num-filtered-rows, num-rows, textbox-num-sep {
+    text-color: @foreground-alt;
+    background-color: transparent;
+}

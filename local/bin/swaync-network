@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Helper para el menú de red de swaync (~/.config/swaync/config.json, menu#network).
+# Mismo motivo que swaync-audio-sink: sacar la lógica de un one-liner con comillas
+# anidadas en JSON, que rompía swaync al evaluarlo.
+#
+# Lista ESTÁTICA: las conexiones que ofrece este menú son las que había en
+# `nmcli connection show` el día que se armó, escritas a mano en config.json. Si mañana
+# aparece una red nueva no se suma sola — hay que agregarla al config y reiniciar
+# swaync.service. Es la misma limitación que el selector de audio.
+
+case "$1" in
+    wifi-toggle)
+        if [ "$(nmcli radio wifi)" = enabled ]; then
+            nmcli radio wifi off
+        else
+            nmcli radio wifi on
+        fi
+        ;;
+    wifi-status)
+        [ "$(nmcli radio wifi)" = enabled ] && echo true || echo false
+        ;;
+    connect)
+        # Si la red es wifi y el radio está apagado, nmcli falla con un error
+        # confuso ("no suitable device") porque wlan0 queda no disponible.
+        if [ "$(nmcli -g connection.type connection show "$2" 2>/dev/null)" = 802-11-wireless ] \
+            && [ "$(nmcli radio wifi)" != enabled ]; then
+            nmcli radio wifi on
+            # nmcli tarda un momento en traer wlan0 de "unavailable" a
+            # "disconnected" tras prender el radio; sin esta espera, connection
+            # up de acá abajo llega antes y falla con "no suitable device".
+            for _ in $(seq 1 20); do
+                [ "$(nmcli -g GENERAL.STATE device show wlan0 2>/dev/null)" != "30 (unavailable)" ] && break
+                sleep 0.25
+            done
+        fi
+        nmcli connection up "$2"
+        ;;
+    toggle)
+        # swaync setea SWAYNC_TOGGLE_STATE con el estado DESTINO al tocar el
+        # botón (true = pasa a activo, false = pasa a inactivo). El "connect"
+        # de arriba solo sabe subir, nunca bajar.
+        if [ "$SWAYNC_TOGGLE_STATE" = true ]; then
+            "$0" connect "$2"
+        else
+            nmcli connection down "$2"
+        fi
+        ;;
+    is-active)
+        nmcli -t -f NAME connection show --active | grep -qFx "$2" && echo true || echo false
+        ;;
+    *)
+        echo "uso: swaync-network {wifi-toggle|wifi-status|connect|is-active} [nombre]" >&2
+        exit 1
+        ;;
+esac

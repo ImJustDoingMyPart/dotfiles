@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Helper para el menú de bluetooth de swaync (~/.config/swaync/config.json,
+# menu#bluetooth). Mismo motivo que swaync-audio-sink: sacar la lógica de un one-liner
+# con comillas anidadas (acá encima con un awk adentro) que rompía swaync al evaluarlo.
+#
+# bluetoothd no arranca con el sistema: solo queda el alias dbus-org.bluez.service, así
+# que se levanta por activación D-Bus la primera vez que alguien le habla a org.bluez.
+# bluetoothctl NO dispara esa activación (se queda esperando al daemon), por eso:
+#   - status mira systemd antes de preguntarle a bluetoothctl
+#   - toggle despierta al daemon con un busctl call (auto-start es el default)
+#
+# Solo el encendido/apagado por ahora: no hay dispositivos emparejados todavía, así que
+# no hay nada más que listar. El día que se empareje alguno, el patrón para agregar filas
+# de dispositivo es el mismo que las de red (bluetoothctl connect/disconnect <MAC>).
+
+powered() {
+    systemctl is-active --quiet bluetooth.service \
+        && timeout 2 bluetoothctl show 2>/dev/null | grep -q "Powered: yes"
+}
+
+case "$1" in
+    toggle)
+        if powered; then
+            bluetoothctl power off
+        else
+            busctl --system call org.bluez / org.freedesktop.DBus.ObjectManager \
+                GetManagedObjects >/dev/null
+            # El controlador se registra un momento después de que arranca el daemon;
+            # sin esta espera, power on falla con "No default controller available".
+            for _ in $(seq 1 20); do
+                [ -n "$(timeout 1 bluetoothctl list 2>/dev/null)" ] && break
+                sleep 0.25
+            done
+            bluetoothctl power on
+        fi
+        ;;
+    status)
+        powered && echo true || echo false
+        ;;
+    *)
+        echo "uso: swaync-bluetooth {toggle|status}" >&2
+        exit 1
+        ;;
+esac

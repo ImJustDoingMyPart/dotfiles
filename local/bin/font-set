@@ -14,7 +14,7 @@
 # sistema  → gsettings font-name + document-font-name, gtk-3.0/settings.ini,
 #            gtk-4.0/settings.ini y el `general` de qt5ct/qt6ct. O sea: el chrome de TODA
 #            app GTK y Qt (Brave, Nautilus, EasyEffects, qBittorrent, los diálogos de
-#            archivo del portal…). NO toca waybar, walker ni mako: esos tres declaran su
+#            archivo del portal…). NO toca waybar, walker ni swaync: esos tres declaran su
 #            fuente en su propio CSS a propósito, y es monoespaciada con glifos Nerd Font
 #            porque sus íconos SON glifos — cambiárselas desde acá los rompería.
 #

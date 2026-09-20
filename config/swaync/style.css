@@ -1,0 +1,1174 @@
+/* swaync — hoja de estilo.
+ *
+ * Portea el lenguaje visual de WALKER al centro de notificaciones, y en segundo lugar el
+ * de Waybar. Igual que esas dos, es AGNÓSTICA DE COLOR: no tiene un solo hex, todo sale
+ * de los @define-color de theme.css, que es un symlink al tema activo (ver theme-set).
+ *
+ * ─── CÓMO CARGA swaync el CSS (esto define toda la estructura del archivo) ───
+ *
+ * swaync carga DOS hojas, no una: primero la del paquete (/etc/xdg/swaync/style.css) y
+ * encima la del usuario. No es lo que sugiere el README ("copiala a ~/.config/swaync/
+ * para personalizarla", que se lee como reemplazo): lo dice el binario, que expone
+ * `--skip-system-css  Skip trying to parse the packaged Stylesheet file` — una opción que
+ * no tendría sentido si la del usuario reemplazara a la del paquete. La man page de
+ * swaync(5) coincide: cssPriority es "which GTK priority to use when loading the default
+ * AND user CSS files".
+ *
+ * Consecuencia práctica, y el motivo de que acá los selectores sean tan largos: esto es
+ * una capa de OVERRIDE. Las dos hojas cargan con la MISMA prioridad GTK, así que gana la
+ * más específica y, a igual especificidad, la última — o sea esta. Pero la del paquete
+ * usa cadenas de descendencia de hasta 7 clases
+ * (`.notification-row .notification-background .notification .notification-default-action
+ * .notification-content .text-box .summary`), y contra eso un `.summary` suelto PIERDE.
+ * Por eso acá cada regla repite la cadena entera: no es verborragia, es lo mínimo para
+ * ganar. Los selectores están copiados de esa hoja; no se inventó ninguno.
+ *
+ * ─── QUÉ VA EN :root Y QUÉ EN REGLAS ───
+ *
+ * La hoja del paquete parametriza todo con custom properties de GTK4 (`--border-radius`,
+ * `--noti-bg`...). Acá se pisan SOLO las que no llevan color; todo lo cromático va en
+ * reglas explícitas. Dos razones:
+ *
+ *   · `--noti-bg` no guarda un color sino una lista de componentes ("48, 48, 48"), para
+ *     consumirla como `rgba(var(--noti-bg), var(--noti-bg-alpha))`. Un @define-color no
+ *     puede expresar eso, así que por ese camino el color del tema no entra.
+ *   · Mantiene theme.css como lo que es en walker y en waybar: una lista de
+ *     @define-color y nada más. Un solo mecanismo para los tres.
+ *
+ * ─── EL PORTE DESDE WALKER ───
+ *
+ *   walker                                        acá
+ *   .box-wrapper (borde en gradiente, sombra)  ->  .control-center
+ *   .box-wrapper                               ->  la notificación flotante
+ *   .item-box (transparente, tinte al elegir)  ->  la notificación DENTRO del panel
+ *   .item-text        14px, opacidad 1         ->  .summary
+ *   .item-subtext     12px, opacidad 0.5       ->  .body
+ *   .keybind-bind     opacidad 0.35, minúscula ->  .time
+ *   .keybind-label    borde 1px, radio 4px     ->  botones de acción y de widget
+ *   .input            lighter(), anillo inset  ->  la respuesta en línea
+ *   scrollbar         opacidad 0 SIEMPRE (acá se apartó del port: en walker aparece al
+ *                     pasar por encima, acá ni eso — pedido explícito)
+ *   border-radius 4px, transiciones de 100ms, JetBrainsMono Nerd Font 14px
+ *
+ * LO QUE NO SE PORTÓ, y por qué: la animación de apertura de walker (fade + escala
+ * 0.92 -> 1). Walker la necesita porque corre como servicio residente y su ventana no se
+ * crea de nuevo en cada apertura; swaync ya anima sus dos superficies por su cuenta con
+ * `transition-time` (200 ms por default), usando un GtkRevealer. Encimarle un @keyframes
+ * es pelearle a esa animación, no sumarle una.
+ */
+
+@import "./theme.css";
+
+/* ── Escalares ────────────────────────────────────────────────────────────────
+ *
+ * Todo lo que la hoja del paquete parametriza y NO es color. Pisar acá el radio y los
+ * tamaños alcanza para que las decenas de reglas de esa hoja que los consumen queden
+ * alineadas con walker sin repetirlas una por una.
+ *
+ * OJO con `--hover-tranistion`: el typo es del upstream y es el nombre que usan de verdad
+ * sus reglas. La versión bien escrita existe solo como alias (`--hover-transition: var(
+ * --hover-tranistion)`), así que pisar únicamente la correcta no cambiaría nada. Se pisan
+ * las dos, con el typo primero. Lo mismo con `--group-collapse-tranistion`. */
+:root {
+  /* El 4px de walker. La hoja del paquete trae 12px, que es el radio de GNOME/Adwaita:
+   * legítimo, pero de otra familia visual que la del resto de este escritorio. */
+  --border-radius: 4px;
+
+  /* 64px circulares es el default. Acá 40px y con esquinas de 4px (ver la regla de
+   * `.image` más abajo): walker no redondea imágenes a círculo en ningún lado, y sus
+   * `.large-icons` son de 32px. */
+  --notification-icon-size: 40px;
+  --notification-app-icon-size: 16px;
+  /* No está `--notification-group-icon-size`: el ícono de la app en el encabezado de un
+   * grupo no se dibuja (ver la regla que lo colapsa), así que un tamaño acá no decide
+   * nada. */
+
+  --font-size-summary: 14px;
+  --font-size-body: 12px;
+
+  /* Los 100ms de walker, y la misma pareja de propiedades: el tinte del ítem elegido y
+   * su escala entran juntos. */
+  --hover-tranistion: background-color 100ms ease, transform 100ms ease;
+  --group-collapse-tranistion: opacity 200ms ease-in-out;
+  --hover-transition: var(--hover-tranistion);
+  --group-collapse-transition: var(--group-collapse-tranistion);
+
+  /* La sombra se decide por superficie, no globalmente: la lleva lo que flota (el panel y
+   * la notificación flotante) y no la lleva lo que es un renglón de lista adentro del
+   * panel. La hoja del paquete se la pone a todas las del panel; acá se anula el default y
+   * cada regla pone la suya. */
+  --notification-shadow: none;
+
+  --mpris-album-art-icon-size: 72px;
+  --widget-volume-row-icon-size: 20px;
+}
+
+/* La misma fuente de walker, de Waybar y de kitty. `monospace` a secas resuelve acá a
+ * Noto Sans Mono, que no trae glifos Nerd Font y dejaría en tofu los íconos que mandan
+ * algunas apps en el texto. Selector universal = especificidad 0: no le gana a nada, solo
+ * cubre lo que ninguna regla con clase toca. */
+* {
+  font-family: "JetBrainsMono Nerd Font", monospace;
+}
+
+/* La barra del panel: SIEMPRE invisible (pedido explícito, no convenció verla ni al pasar
+ * por encima). El scroll con rueda/gesto sigue andando igual; esto solo saca el trazo. */
+scrollbar {
+  opacity: 0;
+}
+
+/* ── El panel = la caja de walker ──────────────────────────────────────────────
+ *
+ * Borde en GRADIENTE de dos colores (primary -> tertiary a 45°), que es el mismo par y el
+ * mismo ángulo del borde de la ventana activa y del de rofi. Es la firma
+ * visual del escritorio: lo que está enfocado lleva ese borde.
+ *
+ * TRANSLÚCIDO AL 0,85 con desenfoque (blur) de fondo vía layer-rule de Hyprland
+ * (`swaync-control-center-blur` con `ignore_alpha = 0.5`), alineado con rofi (0,85),
+ * los toasts flotantes (0,85) y Waybar.
+ *
+ * El borde se resuelve como ANILLO DE `box-shadow` exactamente igual que en las
+ * notificaciones flotantes (`.floating-notifications`): GTK4 dibuja la sombra exterior
+ * SOLO por fuera del contorno (GskOutsetShadowNode), sin pintar nada debajo del fondo
+ * translúcido (lo que evita que un degradé en `border-box` se vea a través del panel).
+ * Se apilan las sombras en orden inverso (GTK4 pinta la última arriba): sombra difusa
+ * grande, sombra difusa chica, mezcla intermedia a 2px spread, esquina tertiary y esquina
+ * primary.
+ *
+ * El margen es CSS y no config a propósito: con `layer-shell-cover-screen` la capa ocupa
+ * la pantalla entera y `.control-center` es un widget adentro, así que un margen acá
+ * despega la caja del filo sin tocar config.json. */
+.control-center {
+  margin: 8px;
+  /* 6 y no los 8 de antes: sumado al margen del panel y al de cada widget, el padding
+   * propio es el tercer descuento sobre 300px de ancho. */
+  padding: 6px;
+  border-radius: var(--border-radius);
+  color: @theme_fg_color;
+
+  border: none;
+  background: alpha(@window_bg_color, 0.85);
+
+  box-shadow:
+    0 19px 38px rgba(0, 0, 0, 0.3),
+    0 15px 12px rgba(0, 0, 0, 0.22),
+    0 0 0 2px mix(@accent_bg_color, @accent_alt_bg_color, 0.5),
+    1px 1px 0 1px @accent_alt_bg_color,
+    -1px -1px 0 1px @accent_bg_color;
+}
+
+.control-center .control-center-list {
+  background: transparent;
+}
+
+/* "No Notifications". Misma atenuación que el `.placeholder` de walker. */
+.control-center .control-center-list-placeholder {
+  color: @theme_fg_color;
+  opacity: 0.5;
+}
+
+/* ── La notificación ──────────────────────────────────────────────────────────
+ *
+ * Dos formas para la misma cosa, según dónde aparezca, porque en walker también son dos
+ * cosas distintas:
+ *
+ *   flotando sobre el wallpaper -> es una CAJA (`.box-wrapper`): fondo propio, borde y
+ *                                  sombra, porque no tiene nada detrás que la contenga.
+ *   dentro del panel            -> es un RENGLÓN DE LISTA (`.item-box`): transparente,
+ *                                  sin borde ni sombra; el fondo lo pone el panel y el
+ *                                  único momento en que gana superficie es al elegirla.
+ *
+ * La regla base deja la forma de renglón, y la de flotante la sobreescribe. Hace falta
+ * repetir la cadena `.notification-row .notification-background .notification` dentro del
+ * selector de flotantes: sin eso el selector queda en 2 clases contra las 3 de la base y
+ * PIERDE, aunque venga después. (Contra la rama del panel no compite: `.control-center` y
+ * `.floating-notifications` son dos árboles de widgets disjuntos.) */
+/* UNA SOLA SUPERFICIE POR NOTIFICACIÓN. En walker el renglón es un único rectángulo
+ * (`.item-box`) que cambia de color al elegirlo; nunca hay una caja adentro de otra. Acá
+ * eso hay que construirlo a propósito, porque la hoja del paquete pinta TRES cosas
+ * apiladas que casi coinciden: `.notification-row:focus`, `.notification` y, adentro,
+ * `.notification-default-action:hover`.
+ *
+ * Verificado en pantalla: con el tinte puesto en el botón de adentro, la notificación
+ * enfocada se dibujaba como un rectángulo claro con otro rectángulo apenas distinto
+ * adentro, separados por 4px. Se lee como un error de layout, no como un ítem elegido.
+ *
+ * Solución: TODO el color de estado va en `.notification`, el botón de adentro queda
+ * transparente siempre, y el fondo de foco de la fila se anula. */
+.notification-row .notification-background .notification {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: var(--border-radius);
+  transition: var(--hover-tranistion);
+}
+
+.notification-row .notification-background .notification .notification-default-action {
+  background: transparent;
+  color: @theme_fg_color;
+  border: none;
+  border-radius: var(--border-radius);
+  transition: var(--hover-tranistion);
+}
+
+.notification-row .notification-background .notification .notification-default-action:hover {
+  background: transparent;
+}
+
+/* Cadena de 5 clases: le tiene que ganar a `.control-center .control-center-list
+ * .notification .notification-default-action:hover` de la hoja del paquete, que pinta un
+ * gris fijo y tiene 4. */
+.control-center .control-center-list .notification-row .notification-background .notification .notification-default-action:hover {
+  background: transparent;
+}
+
+/* El foco de teclado (Up/Down navegan el panel) NO pinta la fila: lo pinta la tarjeta, más
+ * abajo. Si no, son dos rectángulos para un solo estado. */
+.notification-row:focus,
+.notification-group:focus {
+  background: transparent;
+  outline: none;
+}
+
+/* ── Rama 1: flotando sobre el wallpaper ──
+ *
+ * Misma familia que rofi y que las ventanas: tarjeta translúcida al 0,85 (el alfa D9 de
+ * rofi sobre el mismo color) con blur de la layer-rule `swaync-notification-blur`, y
+ * rodeada por el borde bicolor de 2px.
+ *
+ * EL BORDE NO ES UN `border`. Con la tarjeta translúcida, el truco de dos fondos del panel
+ * (degradé en `border-box` tapado por un sólido en `padding-box`) deja ver el degradé a
+ * través de toda la tarjeta — la trampa que obligó a rofi a armar el suyo con tiras. Acá
+ * es un anillo de `box-shadow`: GTK4 dibuja la sombra exterior SOLO por fuera del contorno
+ * (GskOutsetShadowNode), así que no hay nada abajo del fondo. Tres sombras sin blur:
+ *
+ *   -1 -1 spread 1  primary    → 2px arriba y a la izquierda
+ *    1  1 spread 1  tertiary   → 2px abajo y a la derecha
+ *    0  0 spread 2  la mezcla  → tapa las dos esquinas que las otras dejan sin cubrir
+ *
+ * GTK4 las apila AL REVÉS que el CSS de la web: la ÚLTIMA de la lista queda arriba
+ * (verificado midiendo píxeles: en el orden web, la mezcla tapaba los cuatro lados). Por
+ * eso la lista va de abajo hacia arriba: sombra, mezcla, tertiary, primary.
+ *
+ * El resultado es el degradé a 45° de las ventanas en tres pasos. El radio lo sigue solo:
+ * 4 + 2 de spread da el 6 exterior que dibuja Hyprland.
+ *
+ * SOMBRA CHICA. La sombra de una tarjeta flotante se dibuja SOLO dentro del
+ * `padding: 6px 12px` que `.notification-background` le pone alrededor; más allá de eso
+ * se recorta (medido con un diff contra el fondo limpio: el degradado se apaga a los 6px).
+ * Con la sombra grande del panel se veía un rectángulo gris de bordes duros. 2px de offset
+ * y 4px de blur entran enteros: el techo es 6px, no un gusto. El anillo de 2px también
+ * entra en ese margen. */
+.floating-notifications .notification-row .notification-background .notification {
+  background: alpha(@window_bg_color, 0.85);
+  border: none;
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.45),
+    0 0 0 2px mix(@accent_bg_color, @accent_alt_bg_color, 0.5),
+    1px 1px 0 1px @accent_alt_bg_color,
+    -1px -1px 0 1px @accent_bg_color;
+}
+
+/* ── Rama 2: dentro del panel = el renglón de lista de walker ──
+ *
+ * En walker `.item-box` es TRANSPARENTE en reposo y solo se tiñe al elegirlo. Acá lleva un
+ * tinte mínimo igual, y es una desviación deliberada: un ítem del launcher es UNA línea de
+ * texto, y una notificación son dos o tres. Sin ninguna superficie que las delimite, cinco
+ * notificaciones seguidas se leen como un solo bloque de texto en vez de como una lista.
+ * El 0.06 es lo más tenue que todavía separa; el estado sigue siendo el alpha 0.25 de
+ * walker, así que la distancia entre reposo y elegido se mantiene.
+ *
+ * Cinco clases, otra vez por especificidad: la hoja del paquete pinta las tarjetas de un
+ * grupo colapsado con `.notification-group.collapsed .notification-row .notification`, que
+ * son cuatro. Y como el agrupado viene encendido por default, esa regla aplica a casi
+ * cualquier notificación del panel, no solo a una pila. */
+.control-center .control-center-list .notification-row .notification-background .notification {
+  background: alpha(@theme_fg_color, 0.06);
+}
+
+.control-center .control-center-list .notification-row .notification-background .notification:hover,
+.control-center .control-center-list .notification-row:focus .notification-background .notification {
+  background: alpha(@accent_bg_color, 0.25);
+}
+
+/* La escala de walker al elegir un ítem (scale(1.02)), aplicada al renglón entero como
+ * allá. Los 12px de padding horizontal que la hoja del paquete le da a
+ * `.notification-background` son los que dejan lugar para que ese 2% no se coma el borde. */
+.notification-row .notification-background .notification:hover,
+.notification-row:focus .notification-background .notification {
+  transform: scale(1.02);
+}
+
+/* ── El texto ─────────────────────────────────────────────────────────────────
+ *
+ * La jerarquía de walker es por OPACIDAD y tamaño, no por peso: `.item-text` va a 14px y
+ * opacidad plena, `.item-subtext` a 12px y 0.5, y el negrita queda reservado para marcar
+ * algo puntual (los eventos de hoy en el calendario). Se respeta acá: el título de la
+ * notificación NO va en negrita — la separa del cuerpo el mismo par tamaño/opacidad que
+ * separa un ítem de su subtexto en el launcher. El negrita se reserva para `critical`. */
+.notification-row .notification-background .notification .notification-default-action .notification-content .text-box .summary {
+  font-size: var(--font-size-summary);
+  font-weight: normal;
+  color: @theme_fg_color;
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content .text-box .body {
+  font-size: var(--font-size-body);
+  color: @theme_fg_color;
+  opacity: 0.5;
+}
+
+/* La hora relativa es metadato, no contenido: el tratamiento de `.keybind-bind` en walker
+ * —el más tenue de toda su hoja— más su minúscula forzada. El margen derecho de 30px lo
+ * pone la hoja del paquete para dejar pasar el botón de cerrar; se conserva. */
+.notification-row .notification-background .notification .notification-default-action .notification-content .text-box .time {
+  font-size: var(--font-size-body);
+  font-weight: normal;
+  color: @theme_fg_color;
+  opacity: 0.35;
+  text-transform: lowercase;
+  /* La hoja del paquete le pone `margin-right: 30px` para dejar pasar el botón de cerrar.
+   * Sin botón, esos 30px son un agujero — y en un panel de 300px de ancho, el 11% del
+   * ancho útil tirado. */
+  margin-right: 0;
+}
+
+/* Esquinas de 4px en vez del círculo del default: walker no redondea a círculo ninguna
+ * imagen. `-gtk-icon-size` ya viene de la variable de :root. */
+.notification-row .notification-background .notification .notification-default-action .notification-content .image {
+  border-radius: var(--border-radius);
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content .body-image {
+  border-radius: var(--border-radius);
+  /* El default pinta `background-color: white` detrás de la imagen extra, que sobre un
+   * tema oscuro es un rectángulo blanco. */
+  background-color: transparent;
+}
+
+/* La barra de progreso opcional. Mismos roles que la de swayosd: el canal vacío en el
+ * color de borde, el lleno en el acento. */
+.notification-row .notification-background .notification .notification-default-action .notification-content progressbar trough {
+  background: @borders;
+  border: none;
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content progressbar progress {
+  background: @accent_bg_color;
+  border: none;
+}
+
+/* ── Urgencias ────────────────────────────────────────────────────────────────
+ *
+ * `low` se atenúa (la misma herramienta que usa walker para `.todo.done` y para el
+ * bluetooth desconectado: opacidad, no otro color).
+ *
+ * `critical` toma el rojo del esquema, igual que `@urgent` en la barra, y es lo único que se escribe en negrita en toda la hoja. */
+.notification-row .notification-background .notification.low .notification-default-action .notification-content .text-box .summary {
+  opacity: 0.6;
+}
+
+/* `critical` cambia el HUE, no la intensidad: el anillo tiene el mismo grosor que el de
+ * cualquier toast, pero todo rojo en vez de bicolor. Lo que marca el error es el rojo
+ * (anillo, título e ícono), no un borde más fuerte. */
+.floating-notifications .notification-row .notification-background .notification.critical {
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.45),
+    0 0 0 2px @error_bg_color;
+}
+
+.notification-row .notification-background .notification.critical .notification-default-action .notification-content .text-box .summary {
+  color: @error_bg_color;
+  font-weight: bold;
+}
+
+/* EL ÍCONO DE ERROR LO PONE LA HOJA, NO EL EMISOR.
+ *
+ * Las notificaciones propias mandan su ícono con `notify-send -i` (toggle-audio.sh, la TV,
+ * los radares) y swaync lo dibuja en el nodo `.image`. Los errores no: llegan de programas
+ * ajenos que no mandan nada, así que no hay `.image` que pintar y la tarjeta arranca en el
+ * texto. Como el CSS de GTK4 no tiene `content`, el único lugar donde se puede meter una
+ * imagen es un `background-image` del contenedor, con el hueco hecho a mano con padding.
+ *
+ * `-gtk-recolor(url(...))` y no un `url()` pelado: recolor repinta el SVG con el `color`
+ * del nodo, así que el ícono sigue el @error_bg_color del tema activo igual que el borde y
+ * el título, y la hoja se mantiene sin un solo hex. Un `url()` a secas dejaría el color
+ * clavado dentro del archivo, fuera del esquema.
+ *
+ * `-gtk-icontheme("dialog-error-symbolic")` NO sirve acá, aunque GTK4 la acepta sin error
+ * de parseo: no dibuja nada. Probado en pantalla contra `url()` y contra un
+ * `linear-gradient` sobre el mismo nodo — esos dos sí pintan, así que el nodo y el
+ * selector están bien y lo que falla es la función. Por eso el ícono es un archivo propio
+ * (`~/.local/share/icons/alert-error.svg`) y no un nombre del tema de íconos.
+ *
+ * Los 48px de padding izquierdo son EXACTAMENTE lo que ocupa `.image` cuando la
+ * notificación sí trae ícono: 40px de `--notification-icon-size` más los 4px de margen de
+ * cada lado. Así el texto de un error arranca en la misma columna que el de una
+ * notificación con ícono, que es la mitad de lo que hace que las dos se lean igual. Los
+ * 32px de ícono y no 40 son para igualar la TINTA, no la caja: los PNG del juego propio
+ * traen aire adentro de su lienzo y este SVG no, así que a igual caja el triángulo pesaría
+ * más. Centrado en el hueco: (48 - 32) / 2 = 8.
+ *
+ * VA EN `.text-box` Y NO EN `.notification-content` a propósito, y con eso viene el único
+ * caso raro de esta regla. Si un `critical` SÍ trae ícono propio, el triángulo no lo
+ * reemplaza ni lo pisa: el ícono de la app se queda en su columna y el triángulo cae
+ * después, contra el texto, leyéndose como una insignia de urgencia. (Con la regla puesta
+ * en `.notification-content` el orden se invertía —triángulo, ícono, texto— y parecía un
+ * error de layout.)
+ *
+ * NO SE PUEDE hacer que el triángulo aparezca SOLO cuando no hay ícono, y no por falta de
+ * ganas. El árbol es `.notification-content > <caja> > <hueco> > .image`, con el `<hueco>`
+ * SIEMPRE presente (mide 0 cuando está vacío) y la clase `.image` colgando de un
+ * descendiente, así que ningún selector posicional distingue los dos casos: probado en
+ * pantalla con sondas de color, `:first-child` y `:nth-child()` dan lo mismo con ícono y
+ * sin él. Las dos formas de preguntarlo que sí servirían no existen en GTK4: `:has(.image)`
+ * y `:empty` los rechaza el parser ("Unknown pseudoclass", en el journal de swaync). */
+.notification-row .notification-background .notification.critical .notification-default-action .notification-content .text-box {
+  background-image: -gtk-recolor(url("/home/anon/.local/share/icons/alert-error.svg"));
+  background-repeat: no-repeat;
+  background-position: 8px center;
+  background-size: 32px 32px;
+  padding-left: 48px;
+  color: @error_bg_color;
+}
+
+/* ── Botón de cerrar: NO SE DIBUJA ───────────────────────────────────────────
+ *
+ * Pedido explícito. La notificación se cierra con click, con `Limpiar`, o sola cuando se
+ * le acaba el timeout; el botón no hacía falta.
+ *
+ * GTK4 NO tiene `display: none` — no existe esa propiedad en su CSS. Se lo colapsa a
+ * tamaño cero y opacidad cero, que además de esconderlo lo saca del camino del puntero:
+ * un `opacity: 0` solo lo dejaría invisible pero clickeable, y el click caería en el
+ * botón fantasma en vez de en la notificación.
+ *
+ * `min-width`/`min-height` y no `-gtk-icon-size`: la hoja del paquete le fija 24x24 por
+ * esas dos, y son las que hay que pisar. */
+.close-button,
+.notification-group .notification-group-close-button .close-button {
+  opacity: 0;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ── Acciones alternativas ────────────────────────────────────────────────────
+ *
+ * Los botones de acción de una notificación son el equivalente de `.keybind-label`: borde
+ * de 1px, radio de 4px, sin relleno. Ahí walker usa `1px solid @theme_fg_color` a secas,
+ * que en un botón del tamaño de estos queda demasiado marcado; se baja el borde al 35%. */
+.notification-row .notification-background .notification .notification-alt-actions {
+  background: transparent;
+}
+
+.notification-row .notification-background .notification .notification-action > button {
+  background: transparent;
+  color: @theme_fg_color;
+  border: 1px solid alpha(@theme_fg_color, 0.35);
+  border-radius: var(--border-radius);
+  box-shadow: none;
+  transition: var(--hover-tranistion);
+}
+
+.notification-row .notification-background .notification .notification-action > button:hover {
+  background: alpha(@accent_bg_color, 0.25);
+  border-color: @accent_bg_color;
+}
+
+/* ── Respuesta en línea ───────────────────────────────────────────────────────
+ *
+ * Port directo del `.input` de walker, anillo de foco incluido. Está apagada por default
+ * (`notification-inline-replies: false`), pero es el elemento que más se parece al
+ * launcher de todo swaync y no cuesta nada dejarlo listo.
+ *
+ * `:focus-within` además de `:focus` por lo mismo que documenta walker: el widget con el
+ * foco real es el GtkText interno, no el GtkEntry, y GTK4 marca `:focus-within` en TODOS
+ * los ancestros del que lo tiene (a diferencia de la spec CSS de la web, donde alcanza con
+ * el nodo). Con `:focus` a secas el anillo no aparece nunca. */
+.notification-row .notification-background .notification .notification-default-action .notification-content .inline-reply .inline-reply-entry {
+  background: lighter(@window_bg_color);
+  color: @theme_fg_color;
+  caret-color: @theme_fg_color;
+  border: none;
+  border-radius: var(--border-radius);
+  box-shadow: inset 0 0 0 0 transparent;
+  transition: box-shadow 100ms ease;
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content .inline-reply .inline-reply-entry:focus,
+.notification-row .notification-background .notification .notification-default-action .notification-content .inline-reply .inline-reply-entry:focus-within {
+  box-shadow: inset 0 0 0 2px alpha(@accent_bg_color, 0.5);
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content .inline-reply .inline-reply-button {
+  background: transparent;
+  color: @theme_fg_color;
+  border: 1px solid alpha(@theme_fg_color, 0.35);
+  border-radius: var(--border-radius);
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content .inline-reply .inline-reply-button:hover {
+  background: alpha(@accent_bg_color, 0.25);
+  border-color: @accent_bg_color;
+}
+
+.notification-row .notification-background .notification .notification-default-action .notification-content .inline-reply .inline-reply-button:disabled {
+  background: transparent;
+  border-color: alpha(@theme_fg_color, 0.15);
+  color: @theme_fg_color;
+  opacity: 0.35;
+}
+
+/* ── Grupos ───────────────────────────────────────────────────────────────────
+ *
+ * Con `notification-grouping: true`, las notificaciones de una misma app se juntan en un
+ * `.notification-group` que tiene dos formas: COLAPSADO (una pila de tarjetas) y
+ * EXPANDIDO (un encabezado con el nombre de la app y dos botones, y debajo la lista).
+ *
+ * LA GEOMETRÍA DE LA PILA NO ES CSS Y NO SE PUEDE TOCAR. La arma `size_allocate` de
+ * `src/notificationGroup/expandableGroup.vala` con un `Gsk.Transform` por hijo
+ * (swaync 0.12.6, la versión instalada):
+ *
+ *   NUM_STACKED_NOTIFICATIONS = 3      dibuja como mucho tres; el resto no se aloca
+ *   scale = 0.95^i                     cada tarjeta de atrás, un 5% más chica
+ *   x = (width - width*scale) * 0.5    centrada, así que asoma por los DOS costados
+ *   y += COLLAPSED_NOTIFICATION_OFFSET (8px) * i   y corrida hacia abajo
+ *
+ * O sea: la tarjeta con el contenido (`:last-child`, la única que el paquete no vacía con
+ * `opacity: 0`) va entera y arriba de todo, y las otras dos asoman por debajo, más chicas
+ * y escalonadas de a 8px. Desde el CSS solo se decide CON QUÉ SE PINTA cada una.
+ *
+ * FONDOS OPACOS, no `alpha()`. Es la única diferencia con el resto de la hoja y el motivo
+ * es la superposición: las tres tarjetas se pisan, así que dos tintes traslúcidos se
+ * suman y la parte de abajo de la tarjeta de adelante sale más clara que la de arriba.
+ * Como `.control-center` es opaco (ver su regla), `mix(@window_bg_color, X, f)` da el
+ * MISMO color que `alpha(X, f)` encima del panel: la tarjeta de un grupo y la de una
+ * notificación suelta se ven idénticas, y acá además no se suman. Los tres tonos escalan
+ * parejo — panel, tarjeta de atrás, tarjeta de adelante — y la pila se lee como pila.
+ *
+ * EL FOCO NO PINTA EL GRUPO. Antes había acá un `background` sobre `.notification-group:
+ * focus`, y era el origen del aspecto roto: el grupo ocupa bastante más que sus tarjetas,
+ * así que eso dibujaba un rectángulo grande y desalineado alrededor de la pila — y se veía
+ * casi siempre, porque al abrir el panel el primer grupo queda con el foco. Vale la misma
+ * regla que para una notificación suelta (ver "El foco de teclado NO pinta la fila"): el
+ * estado lo lleva la TARJETA. Con el grupo colapsado el foco cae en `.notification-group`
+ * y no en la fila, así que hay que bajarlo a las tarjetas a mano; son estas reglas. */
+
+/* Reposo. */
+.control-center .control-center-list .notification-group.collapsed .notification-row:last-child .notification-background .notification {
+  background: alpha(@theme_fg_color, 0.06);
+}
+
+.control-center .control-center-list .notification-group.collapsed .notification-row:not(:last-child) .notification-background .notification {
+  background: alpha(@theme_fg_color, 0.03);
+}
+
+/* Elegido — con el puntero encima o con el foco de teclado. El mismo tinte de acento al
+ * 0.25 que cualquier otra fila del panel, y las de atrás a 0.12: la mitad, que es la misma
+ * proporción que en reposo (0.03 sobre 0.06). Sin eso la pila se aplana justo en el estado
+ * en el que importa saber que hay más de una.
+ *
+ * Cadena larga a propósito: le tiene que ganar a `.notification-group.collapsed:hover
+ * .notification-row:not(:only-child) .notification` de la hoja del paquete, que pinta las
+ * TRES de un gris fijo y ajeno a la paleta. */
+.control-center .control-center-list .notification-group.collapsed:hover .notification-row:last-child .notification-background .notification,
+.control-center .control-center-list .notification-group.collapsed:focus .notification-row:last-child .notification-background .notification {
+  background: alpha(@accent_bg_color, 0.25);
+}
+
+.control-center .control-center-list .notification-group.collapsed:hover .notification-row:not(:last-child) .notification-background .notification,
+.control-center .control-center-list .notification-group.collapsed:focus .notification-row:not(:last-child) .notification-background .notification {
+  background: alpha(@accent_bg_color, 0.12);
+}
+
+/* La escala de walker, aplicada a LAS TRES y no solo a la de adelante. Sin esto el puntero
+ * hace crecer un 2% la tarjeta de arriba y deja las otras dos quietas: la pila se
+ * descuadra. Acá el `transform` del CSS se compone con el que ya puso `size_allocate`, y
+ * como cada tarjeta escala sobre su propio centro, la pila crece entera. */
+.control-center .control-center-list .notification-group.collapsed:hover .notification-row .notification-background .notification,
+.control-center .control-center-list .notification-group.collapsed:focus .notification-row .notification-background .notification {
+  transform: scale(1.02);
+}
+
+/* ── El encabezado del grupo expandido ────────────────────────────────────────
+ *
+ * Al abrir un grupo aparece arriba una fila con el ícono y el nombre de la app a la
+ * izquierda, y contraer y cerrar-todo a la derecha. Es la parte de swaync que más se nota
+ * que viene de GNOME. El tratamiento es el de `.time` —tamaño de cuerpo, atenuado,
+ * minúscula forzada— para que la fila se lea como el renglón de metadato que es y no como
+ * la barra de título de una ventana, PERO con dos diferencias: el nombre va en NEGRITA y
+ * a 0.5 en vez de 0.35, porque no es un dato más de la notificación sino la etiqueta que
+ * dice de qué programa es la pila entera; tiene que poder encontrarse de un vistazo. Al
+ * 0.35 la negrita no llega a leerse. Los botones sí se quedan en 0.35: son controles, y
+ * abajo del rótulo en la jerarquía.
+ *
+ * `title-1` se lo pone el código (`app_label.add_css_class ("title-1")`), que en
+ * libadwaita es un título grande; `font-size` lo devuelve a la escala del panel.
+ *
+ * Los 16px de margen del paquete dejaban el encabezado 4px más adentro que las tarjetas,
+ * que arrancan a los 12px del `padding` de `.notification-background`. Se igualan: el
+ * nombre de la app alinea con el título de las notificaciones de abajo. */
+.notification-group .notification-group-headers,
+.notification-group .notification-group-buttons {
+  margin: 0 12px;
+}
+
+.notification-group .notification-group-headers .notification-group-header {
+  color: @theme_fg_color;
+  opacity: 0.5;
+  font-size: var(--font-size-body);
+  font-weight: bold;
+  text-transform: lowercase;
+}
+
+/* EL ÍCONO DE LA APP NO SE DIBUJA. Es el único elemento del panel que no es un glifo
+ * monocromo: llega del tema de íconos con su propia paleta y su propio trazo, y al lado
+ * de un rótulo atenuado se lee como un parche. La app ya está nombrada en el rótulo, y
+ * cada notificación del grupo trae su imagen en `.image`, así que no informa nada nuevo.
+ * Se colapsa igual que el botón de cerrar, y por el mismo motivo (GTK4 no tiene
+ * `display: none`): tamaño cero y opacidad cero. */
+.notification-group .notification-group-headers .notification-group-icon {
+  opacity: 0;
+  min-width: 0;
+  min-height: 0;
+  -gtk-icon-size: 0;
+}
+
+/* Los dos botones del encabezado: el paquete los deja en botón default de GTK — círculo
+ * gris sólido. Mismo idioma que el resto del panel: sin caja, y el estado es el color y
+ * la opacidad del glifo. No se ocultan (a diferencia del `.close-button` de una
+ * notificación suelta): son la única forma de cerrar un grupo entero o de volver a
+ * colapsarlo. En reposo van a la misma atenuación que el rótulo; al pasar por encima
+ * suben a opacidad 1 con el color de acento.
+ *
+ * LOS GLIFOS SON PROPIOS, no los del paquete: `swaync-collapse-symbolic` y
+ * `swaync-close-symbolic` viven en `~/.local/share/icons/hicolor/scalable/actions/` y
+ * ganan por precedencia del tema de íconos del usuario sobre el GResource del binario.
+ * Son el chevron-up y la x de Lucide, la misma familia que los íconos propios de las
+ * notificaciones — pero con dos apartamientos de esa convención, los dos medidos contra
+ * el panel y no elegidos de gusto:
+ *
+ *   · DE TRAZO A RELLENO. El recoloreo de íconos simbólicos de GTK fuerza `fill` e
+ *     ignora `stroke`: un contorno a trazo vuelve INVISIBLE (comprobado; es la misma
+ *     trampa que documenta la nota para `-gtk-recolor`). Cada brazo es el rectángulo
+ *     redondeado que dibujaría ese trazo.
+ *   · GROSOR 4 Y NO 2 sobre el viewBox de 24 — 2,7px a los 16 del render. Los íconos
+ *     propios de las notificaciones van a 2, pero se ven solos y en grande; estos
+ *     conviven con los glifos Nerd Font del menubar y del botón "Limpiar", que son
+ *     macizos, y al 2 se leían como de otra familia, demasiado finos.
+ *
+ * `-gtk-icon-source` en el CSS NO sirve para esto: parsea sin error y no reemplaza nada
+ * (probado sobre el nodo `image` del botón). El único camino es el tema de íconos. */
+.notification-group .notification-group-buttons button {
+  background: transparent;
+  color: @theme_fg_color;
+  opacity: 0.35;
+  border: none;
+  box-shadow: none;
+  min-width: 0;
+  min-height: 0;
+  padding: 2px;
+  transition: color 100ms ease, opacity 100ms ease;
+}
+
+.notification-group .notification-group-buttons button:hover {
+  background: transparent;
+  color: @accent_bg_color;
+  opacity: 1;
+}
+
+/* Las tarjetas DENTRO de un grupo expandido: la regla general de más arriba
+ * (`.control-center .control-center-list .notification-row .notification-background
+ * .notification`) asume que toda fila cuelga de `.control-center-list`, y ese ancestro no
+ * está garantizado para las filas de un grupo — abierto un grupo, se veían con el fondo
+ * gris sólido default del paquete (rgba(48,48,48,...) fijo, ajeno a la paleta) en vez del
+ * tinte translúcido del resto. Estas dos reglas repiten el tinte y el hover sin exigir esa
+ * ascendencia, así alcanzan a la fila la tenga o no. */
+.notification-group .notification-row .notification-background .notification {
+  background: alpha(@theme_fg_color, 0.06);
+}
+
+.notification-group .notification-row .notification-background .notification:hover,
+.notification-group .notification-row:focus .notification-background .notification {
+  background: alpha(@accent_bg_color, 0.25);
+}
+
+/* ── Widgets del panel ────────────────────────────────────────────────────────
+ *
+ * Los que hay hoy los decide `config.json`: la grilla de botones (menubar), volumen,
+ * brillo, las notificaciones y, al final de todo, un `buttons-grid` de un solo botón:
+ * "Limpiar" (`swaync-client -C`, pedido 2026-09-04). No se usó el widget `title` — su
+ * botón "Clear All" vive en una fila con un label a la izquierda, y ese label, aunque
+ * quede con `text` vacío, se queda con el `hexpand` de la fila y empuja el botón al borde
+ * derecho (comprobado con captura: no hay forma de centrarlo por CSS, el que recibe el
+ * espacio extra es el label, no el botón). `buttons-grid` es un FlowBox — con un solo
+ * botón y sin más elementos en la fila, GTK lo centra solo. `title`/`inhibitors` (más
+ * abajo) no están en la lista de widgets pero se dejan alineados por si se agregan: son
+ * las mismas decisiones repetidas.
+ *
+ * El margen y el padding del paquete son 8px cada uno, pensados para un panel de 500px de
+ * ancho. Acá deja menos útiles y cada fila de widget pierde 32 de los suyos, así que el
+ * padding baja a 4. El margen vertical también: varios widgets apilados en un panel
+ * angosto no pueden gastar 8px arriba y abajo de cada uno en aire. */
+.widget {
+  border-radius: var(--border-radius);
+  margin: 4px 6px;
+  padding: 4px;
+}
+
+/* ── El ritmo horizontal: 28px del borde para TODO ────────────────────────────
+ *
+ * Un solo margen visible entre el borde interno del panel y la TINTA de cualquier
+ * elemento: íconos de la fila de arriba, glifos y perillas de los sliders, tarjetas de
+ * notificación y opciones de los desplegables. El número no se eligió: es el que ya traen
+ * las notificaciones (los 12px de `.notification-background` del paquete sobre los 16 de
+ * margen y padding de `.widget`), que son la superficie más grande del panel y por eso la
+ * que fija la referencia. Los demás se acomodan a ella, no al revés.
+ *
+ * Los 16px de padding de acá suman a los 12 del margen del widget más el padding del panel
+ * para dar los 28. La derecha cierra igual porque el `padding-right: 5px` del `scale` (más
+ * abajo) deja que la perilla al 100% termine justo en el borde de contenido.
+ *
+ * `.widget-menubar` va al revés: sus botones tienen aire propio porque el glifo va centrado
+ * en un botón mucho más ancho que él, así que la fila necesita MENOS margen, no más. El
+ * margen negativo son 12 y no 10: 6 del margen del widget, 4 de su padding y 2 más que el
+ * contenedor del paquete agrega de su lado —medidos sobre la captura, la primera versión
+ * con −10 dejó la tinta en 30 en vez de 28—. Así el bloque de botones arranca en el padding
+ * del panel, y el ancho de botón (más abajo) hace que la tinta caiga en los 28. Los `.start`/`.end` del paquete traen 8px de margen cada uno —que
+ * se suman aunque `.end` esté vacío, y son los que explican por qué el panel mide 8px más
+ * de lo que la cuenta ingenua predice— y acá estorban: se anulan. */
+.widget-volume,
+.widget-slider,
+.widget-backlight {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.widget-menubar > .menu-button-bar {
+  margin-left: -12px;
+  margin-right: -12px;
+}
+
+.widget-menubar > .menu-button-bar > .start {
+  margin-left: 0;
+}
+
+.widget-menubar > .menu-button-bar > .end {
+  margin-right: 0;
+}
+
+/* El título del panel es el único acento de color puro, igual que la hora en la barra:
+ * ahí `#clock.time` toma `@accent` y todo lo demás se ordena alrededor. 1.5rem del default
+ * es tipografía de otra escala; acá el título es apenas más grande que el cuerpo. */
+.widget-title > label,
+.widget-inhibitors > label {
+  color: @accent_bg_color;
+  font-size: 16px;
+}
+
+/* "Clear All". El `.keybind-label` de walker otra vez. */
+.widget-title > button,
+.widget-inhibitors > button {
+  background: transparent;
+  color: @theme_fg_color;
+  border: 1px solid alpha(@theme_fg_color, 0.35);
+  border-radius: var(--border-radius);
+  box-shadow: none;
+  transition: var(--hover-tranistion);
+}
+
+.widget-title > button:hover,
+.widget-inhibitors > button:hover {
+  background: alpha(@accent_bg_color, 0.25);
+  border-color: @accent_bg_color;
+}
+
+/* El botón "Limpiar", mismo idioma visual que "Clear All" de arriba (`.keybind-label` de
+ * walker). `flowboxchild` es el nodo que envuelve cada botón del FlowBox — sin fondo ni
+ * borde propio, para que el único recuadro visible sea el del `button` de adentro.
+ *
+ * Sin notificaciones, este botón NO se ve distinto — se probó `.widget-notifications:has(
+ * .control-center-list-placeholder) ~ .widget-buttons-grid ...` (comprobado con captura,
+ * fondo rojo de prueba) y GTK 4.22 no lo aplica: no hay `:has()`, así que un widget no
+ * puede leer el estado interno de otro widget hermano por CSS. Lo que sí se resolvió es
+ * que quede INÚTIL en los hechos: el `command` en config.json es un `sh -c` que primero
+ * mira `swaync-client -c` y no ejecuta `-C` si ya está en cero. */
+.widget-buttons-grid flowboxchild {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* Mismo idioma que la fila de arriba (`.widget-menubar-container button`, línea ~637):
+ * sin recuadro ni fondo en ningún estado, el color del texto es el único indicio. La
+ * diferencia con esa fila es el `:active` de abajo — los botones de arriba no reaccionan
+ * al click en sí (solo abren su desplegable), así que no necesitan feedback de press. Este
+ * SÍ dispara una acción con el click, y necesita confirmarlo. */
+.widget-buttons-grid flowboxchild > button {
+  background: transparent;
+  color: @theme_fg_color;
+  border: none;
+  box-shadow: none;
+  font-size: 20px;
+  transition: var(--hover-tranistion);
+}
+
+.widget-buttons-grid flowboxchild > button:hover {
+  background: transparent;
+  color: @accent_bg_color;
+}
+
+/* Feedback de click real, no solo hover: el texto salta a full-opacity blanco/acento y se
+ * achica un toque (`transform: scale`), como si el botón mismo se hundiera. `transition:
+ * none` es a propósito y asimétrico — en CSS la transición que se usa al ENTRAR a un
+ * estado es la que ese estado declara, así que esto vuelve el press instantáneo (0ms) y
+ * deja que soltar el botón (vuelve a :hover) sí anime con los 100ms de
+ * `--hover-tranistion`. Es la misma idea que un botón físico: se hunde apenas se lo toca,
+ * sube con resorte. */
+.widget-buttons-grid flowboxchild > button:active {
+  background: transparent;
+  color: @accent_bg_color;
+  transform: scale(0.92);
+  transition: none;
+}
+
+.widget-dnd > label,
+.widget-label > label {
+  color: @theme_fg_color;
+  font-size: var(--font-size-summary);
+}
+
+/* El switch de No Molestar. Se recolorea nada más: con `ignore-gtk-theme: true` swaync
+ * limpia GTK_THEME y queda el Adwaita de fábrica, que ya le da forma y tamaño. Apagado usa
+ * el mismo tinte tenue que todo lo demás; encendido, el acento pleno, y entonces la
+ * perilla pasa al color del panel para que se recorte contra él. */
+.widget-dnd switch {
+  background: alpha(@theme_fg_color, 0.15);
+  border: none;
+  border-radius: var(--border-radius);
+  box-shadow: none;
+}
+
+.widget-dnd switch:checked {
+  background: @accent_bg_color;
+}
+
+/* La perilla APAGADA va atenuada, no en el color de frente pleno. Verificado en pantalla:
+ * con el crema a opacidad plena sobre el canal oscuro, el switch apagado se lee como
+ * encendido de un vistazo — el ojo ve "hay algo brillante prendido ahí" antes de registrar
+ * de qué lado está la perilla. Encendida sí va plena, y entonces pasa al color del panel
+ * para recortarse contra el acento. */
+.widget-dnd switch slider {
+  background: alpha(@theme_fg_color, 0.5);
+  border: none;
+  border-radius: var(--border-radius);
+  box-shadow: none;
+}
+
+.widget-dnd switch:checked slider {
+  background: @window_bg_color;
+}
+
+/* Botones de la grilla: NI recuadro ni tinte de fondo en ningún estado — el único
+ * indicio de hover/selección es el COLOR del glifo. Reposo en el color de texto normal,
+ * hover en el acento, prendido en el segundo color del gradiente (el mismo par que usa
+ * el borde del panel), para que hover y "prendido" se puedan distinguir sin superficie
+ * de por medio. */
+/* `buttons-grid` SE FUE del todo (2026-09-03): los cinco íconos de arriba (caffeine, no
+ * molestar, red, bluetooth, audio) ahora viven todos en `menubar` — dos como `buttons#`
+ * de acción directa y tres como `menu#` con desplegable — para que compartan una sola
+ * fila y CSS los pueda repartir parejo. Las reglas de `.widget-buttons-grid` que estaban
+ * acá se borraron con el widget; no queda ningún uso de ese selector en config.json. */
+
+/* La fila de arriba: el botón que abre cada desplegable (o ejecuta directo, en el caso de
+ * caffeine/DND) se trata igual que antes la grilla — sin recuadro, glifo grande, el color
+ * es el único estado. `min-width` IGUAL en los seis fuerza el reparto parejo: GTK no
+ * tiene un equivalente a `flex: 1` en su CSS, así que la única forma de que seis
+ * botones que se empaquetan por tamaño natural terminen ocupando el ancho completo en
+ * partes iguales es darles a todos el mismo mínimo y dejar que sumen el ancho útil.
+ *
+ * El 57 sale de la cuenta al revés, desde la TINTA y no desde el ancho (ver el bloque del
+ * ritmo horizontal más arriba): el glifo va centrado en su botón, así que para que la
+ * tinta del primero caiga a 28px del borde interno del panel, el botón tiene que medir
+ * 2·(28 − 6 + 17/2) = 61px con margen incluido — 6 de padding del panel y 17 de ancho de
+ * tinta del glifo de la taza. Con 2px de margen a cada lado, 57 de mínimo. */
+.widget-menubar > .menu-button-bar > .widget-menubar-container button {
+  background: transparent;
+  color: @theme_fg_color;
+  border: none;
+  border-radius: var(--border-radius);
+  box-shadow: none;
+  font-size: 20px;
+  min-width: 57px;
+  min-height: 30px;
+  margin: 0 2px;
+  padding: 2px 0;
+  transition: color 100ms ease, transform 100ms ease;
+}
+
+.widget-menubar > .menu-button-bar > .widget-menubar-container button:hover {
+  background: transparent;
+  color: @accent_bg_color;
+}
+
+/* El recuadro azul que a veces aparece alrededor de caffeine (o el botón que le toque) es
+ * el anillo de foco de teclado default de GTK4 — sale cuando el botón recibe foco por
+ * teclado (por ejemplo, al abrir el panel), no con mouse, por eso aparece "de vez en
+ * cuando". Se apaga igual que ya se apaga en los `row` del desplegable (línea ~678). */
+.widget-menubar > .menu-button-bar > .widget-menubar-container button:focus,
+.widget-menubar > .menu-button-bar > .widget-menubar-container button:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* El botón que dispara el desplegable es un toggle por dentro (así sabe si mostrar u
+ * ocultar el revealer): GTK4 le pinta un indicador default de "prendido" — normalmente un
+ * box-shadow o borde horizontal abajo — mientras el menú está abierto. Se apaga acá para
+ * que "el menú de audio está abierto" se note solo en el color del glifo, como el resto,
+ * y no en una franja aparte. */
+.widget-menubar > .menu-button-bar > .widget-menubar-container button:checked,
+.widget-menubar > .menu-button-bar > .widget-menubar-container button:active {
+  background: transparent;
+  border-top: none;
+  border-bottom: none;
+  box-shadow: none;
+  color: @accent_bg_color;
+}
+
+/* Mismo feedback de press que "Limpiar" (línea ~624): al toque se achica y el cambio es
+ * instantáneo; al soltar vuelve a tamaño normal con los 100ms de la transición de arriba.
+ * Va DESPUÉS de la regla de :checked/:active de arriba para no heredar su falta de
+ * transform, pero sin pisarle el color — el toggle prendido (caffeine) o el desplegable
+ * abierto siguen leyéndose por el acento, el `scale` es solo mientras el botón está
+ * físicamente apretado. */
+.widget-menubar > .menu-button-bar > .widget-menubar-container button:active {
+  transform: scale(0.92);
+  transition: none;
+}
+
+/* El recuadro del `row` que envuelve cada opción DENTRO del desplegable (mismo problema
+ * que el `flowboxchild` de la vieja grilla: GTK4 pinta hover/selected con fondo propio en
+ * el contenedor, no en el botón). Se apaga en los tres estados. Esta regla no tiene forma
+ * de verificarse por captura (no hay cómo simular hover/click acá), así que queda como
+ * defensiva — no le hace nada al look si `row` no es el nodo real. */
+.widget-menubar > revealer row,
+.widget-menubar > revealer row:hover,
+.widget-menubar > revealer row:focus,
+.widget-menubar > revealer row:selected {
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+/* SIN acento lateral (sacado 2026-09-03: no convenció verlo en pantalla). El único estado
+ * vuelve a ser el color del glifo/texto, como en la grilla de arriba. `border: none` acá
+ * ANTES del separador de abajo — el orden importa: si el reset general fuera último,
+ * pisaría el `border-bottom` puntual del separador aunque sea más específico. */
+/* Las opciones del desplegable entran en el mismo ritmo: el paquete les da `margin: 8px`,
+ * que sobre los 16 del widget dan 24 y no 28. */
+.widget-menubar > revealer * button {
+  margin-left: 12px;
+  margin-right: 12px;
+  background: transparent;
+  color: @theme_fg_color;
+  border: none;
+  box-shadow: none;
+  outline: none;
+  transition: color 100ms ease;
+}
+
+.widget-menubar > revealer * button:hover {
+  background: transparent;
+  color: @accent_bg_color;
+}
+
+/* Separadores probados y sacados (2026-09-03): no convencieron en pantalla. Sin acento
+ * lateral y sin separador, el único estado de una opción del menú vuelve a ser el color
+ * del texto — mismo lenguaje que los íconos de arriba. */
+.widget-menubar > revealer * button.toggle:checked {
+  background: transparent;
+  border-top: none;
+  box-shadow: none;
+  color: @accent_alt_bg_color;
+}
+
+/* ── Los dos sliders (volumen y brillo) ───────────────────────────────────────
+ *
+ * La etiqueta de los dos es un glifo, no una palabra: en el panel ensanchado, "Volume" y
+ * "Brightness" se comerían el slider igual. Con la perilla achicada más abajo, el glifo
+ * queda como la referencia visual más grande de la fila, así que sube con ella: 16→20px,
+ * y con un margen a la derecha para que no toque el canal. */
+.widget-volume label,
+.widget-slider label {
+  color: @theme_fg_color;
+  margin-right: 8px;
+}
+
+.widget-volume label {
+  font-size: 20px;
+}
+
+/* El sol del brillo va 3px más grande que el parlante del volumen. No es capricho: los dos
+ * glifos son del mismo set (Material Design de Nerd Fonts) pero no tienen el mismo peso
+ * óptico — el parlante es una silueta maciza y el sol son un disco chico y ocho rayos
+ * finos. Al mismo font-size el de arriba pesa el doble que el de abajo y las dos filas no
+ * se leen como pareja. Medido en pantalla, no calculado. Se mantiene la misma diferencia
+ * de 3px al escalar. */
+.widget-slider label {
+  font-size: 23px;
+}
+
+/* Reproductor. La carátula pierde el círculo y toma las esquinas de 4px, como el resto de
+ * las imágenes de la hoja. */
+.widget-mpris .widget-mpris-player {
+  border-radius: var(--border-radius);
+}
+
+.widget-mpris .widget-mpris-player .mpris-overlay .widget-mpris-album-art {
+  border-radius: var(--border-radius);
+}
+
+.widget-mpris .widget-mpris-player .mpris-overlay .widget-mpris-title {
+  font-size: var(--font-size-summary);
+  font-weight: normal;
+}
+
+.widget-mpris .widget-mpris-player .mpris-overlay .widget-mpris-subtitle {
+  font-size: var(--font-size-body);
+  opacity: 0.5;
+}
+
+.widget-mpris .widget-mpris-player .mpris-overlay button:hover,
+.widget-mpris .widget-mpris-player .mpris-overlay > box > button:hover,
+.widget-mpris > box > button:hover {
+  background: alpha(@accent_bg_color, 0.25);
+  border-radius: var(--border-radius);
+}
+
+/* Los sliders de volumen y brillo: "línea de neón" — el trough casi no pinta, el color
+ * vive en el degradé del relleno y en el brillo de la perilla. `min-height` explícito
+ * sigue vigente por la misma razón de antes (el default de Adwaita es casi imperceptible
+ * con la perilla achicada); el trough además se atenúa con `alpha()` para leerse como
+ * canal discreto y no competir con el relleno.
+ *
+ * Tres intentos previos descartados: (1) `background-size` fijo en px sobre
+ * `highlight`, que cortaba feo al final por adivinar mal el ancho del trough; (2) una
+ * sola tonalidad vía `shade()`, que contra el celeste pastel del wallpaper actual
+ * (`#8ad0ef`) se leía casi plano; (3) un degradé de tres paradas propio —celeste,
+ * mezcla intermedia, violeta mezclado con `window_bg_color`— colorido pero inventado:
+ * ninguna otra superficie del escritorio usaba esa combinación.
+ *
+ * Ahora el degradé es LITERAL el mismo par que ya pinta el foco de todo el escritorio:
+ * `accent_bg_color` (primary) → `accent_alt_bg_color` (tertiary), sin parada
+ * intermedia ni mezcla con el fondo. Es el par del borde de la ventana activa y el de
+ * `.control-center` un poco más arriba en esta misma hoja (línea ~147: "primary ->
+ * tertiary a 45°, [...] la firma visual del escritorio: lo que está enfocado lleva ese
+ * borde"). El slider no inventa paleta propia: usa la firma existente, así que un
+ * cambio de wallpaper lo mantiene coherente con el resto sin retocar nada acá. */
+/* El extremo derecho de la línea, alineado con el glifo de la izquierda. Adwaita le da al
+ * GtkScale `padding: 12px` en los cuatro lados: adentro del panel eso se traduce en que el
+ * canal termina 12px antes que el borde de contenido del widget, mientras que el glifo de
+ * la izquierda SÍ arranca pegado a ese borde. Medido sobre la captura: 16px del borde
+ * interno del panel al glifo, 28px del final del canal al borde de enfrente.
+ *
+ * No se anula el padding entero: el de la izquierda es el que separa el canal del glifo, y
+ * el de la derecha no baja a 0 sino a 5px, que son los que la perilla sobresale del canal
+ * por su `margin: -5px`. Así lo que queda a 16px del borde derecho es la PERILLA al 100%,
+ * que es el extremo que el ojo ve — y los dos sliders viven casi siempre al máximo. */
+.widget-volume scale,
+.widget-backlight scale,
+.widget-slider scale {
+  padding-right: 5px;
+}
+
+.widget-volume trough,
+.widget-backlight trough,
+.widget-slider trough {
+  background: alpha(@borders, 0.6);
+  border: none;
+  min-height: 5px;
+  border-radius: var(--border-radius);
+}
+
+.widget-volume highlight,
+.widget-backlight highlight,
+.widget-slider highlight {
+  background-image: linear-gradient(to right, @accent_bg_color, @accent_alt_bg_color);
+  border: none;
+  border-radius: var(--border-radius);
+  transition: all 150ms ease-out;
+}
+
+/* La perilla de Adwaita por default mide 20px con -10px de margen (así se centra sobre
+ * un trough más angosto que ella). En reposo se achica a 10px con margen -5px para
+ * seguir centrada sobre el canal; al presionar baja otro escalón, a 7px/-3.5px, como
+ * gesto de "esto se está hundiendo".
+ *
+ * Es la punta encendida de la línea: toma `accent_alt_bg_color` a secas, el mismo
+ * tertiary con el que termina el degradé (así el relleno no "salta" de color contra
+ * ella al llegar) y el mismo con el que termina el borde del panel y el focus-ring de
+ * las ventanas — con halo en dos capas para leer como neón.
+ *
+ * Tres correcciones sobre el intento anterior, las tres por el mismo motivo — la
+ * amplitud era desproporcionada de un lado o del otro:
+ *   1. El halo constante (fuera de la animación) bajó mucho de intensidad: "sutil" fue
+ *      el pedido explícito, y el halo fijo de antes ya competía con el degradé.
+ *   2. El pico del titileo (`neon-pulse`) también bajó — el anterior (blur 9-20px,
+ *      alfa .55-.95 cada 1.8s) era el blob exagerado del que se quejó, no una mejora.
+ *      El titileo ahora es un brillo chico que sube y baja, no un flash.
+ *   3. Al presionar (`:active`, el mismo estado que usa Adwaita en
+ *      `scale:active > trough > slider` — acá con la clase de instancia en vez de
+ *      `scale` porque `.widget-volume`/`.widget-backlight`/`.widget-slider` SON la
+ *      clase que lleva el GtkScale) el titileo se apaga (`animation: none`) y el halo
+ *      queda fijo en un valor intermedio: ni el mínimo del reposo ni el pico del
+ *      titileo, para que se sienta "sostenido" y no "apagado" ni "destello". */
+.widget-volume slider,
+.widget-backlight slider,
+.widget-slider slider {
+  background: @accent_alt_bg_color;
+  border: none;
+  box-shadow: 0 0 2px 0 alpha(@accent_alt_bg_color, 0.3);
+  min-width: 10px;
+  min-height: 10px;
+  margin: -5px;
+  transition: min-width 120ms ease-out, min-height 120ms ease-out, margin 120ms ease-out, box-shadow 200ms ease-out;
+  animation: neon-twinkle 2.2s ease-in-out infinite;
+}
+
+.widget-volume:active slider,
+.widget-backlight:active slider,
+.widget-slider:active slider {
+  animation: none;
+  box-shadow:
+    0 0 4px 1px alpha(@accent_alt_bg_color, 0.5),
+    0 0 8px 2px alpha(@accent_alt_bg_color, 0.25);
+  min-width: 7px;
+  min-height: 7px;
+  margin: -3.5px;
+}
+
+@keyframes neon-twinkle {
+  0%, 100% {
+    box-shadow:
+      0 0 2px 0 alpha(@accent_alt_bg_color, 0.25),
+      0 0 4px 1px alpha(@accent_alt_bg_color, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 3px 1px alpha(@accent_alt_bg_color, 0.5),
+      0 0 6px 2px alpha(@accent_alt_bg_color, 0.25);
+  }
+}
+
+/* `--noti-bg-alt` no está definida en ninguna parte de la hoja del paquete (la usa
+ * `.per-app-volume` y nadie la declara: es un bug suyo, no una variable a completar). Se
+ * le da fondo propio acá. */
+.per-app-volume {
+  background-color: alpha(@theme_fg_color, 0.06);
+  border-radius: var(--border-radius);
+}

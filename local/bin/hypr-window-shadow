@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Estilo de sombra de las ventanas: sombra negra ceñida o glow del color del tema.
+#
+# Uso:  hypr-window-shadow             -> lista estilos, "* " marca el activo
+#       hypr-window-shadow <estilo>    -> aplica ese estilo
+#
+# Cada estilo es un módulo Lua en ~/.config/hypr/cfg/shadow-styles/ y el activo es el destino
+# del symlink cfg/shadow-style.lua: el estado se DERIVA del symlink, no hay archivo aparte que
+# pueda desincronizarse. El color lo resuelve el orden de carga de hyprland.lua (el estilo va
+# después del tema): black.lua declara su negro, colorful-glow.lua no declara color y deja el
+# glow que genera el tema. Por eso cambiar de estilo no regenera la paleta.
+
+set -euo pipefail
+
+cfg="$HOME/.config/hypr/cfg"
+link="$cfg/shadow-style.lua"
+
+actual() { basename "$(readlink "$link" 2>/dev/null)" .lua; }
+
+if [[ $# -eq 0 ]]; then
+  active=$(actual)
+  for f in "$cfg"/shadow-styles/*.lua; do
+    s=$(basename "$f" .lua)
+    [[ $s == "$active" ]] && echo "* $s" || echo "  $s"
+  done
+  exit 0
+fi
+
+style="$1"
+if [[ ! -f "$cfg/shadow-styles/$style.lua" ]]; then
+  echo "hypr-window-shadow: estilo desconocido '$style'" >&2
+  exit 1
+fi
+
+ln -sfn "shadow-styles/$style.lua" "$link"
+# `config-only`: sin eso el reload reaplica monitores y apaga la TV un instante (theme-reload).
+hyprctl reload config-only >/dev/null 2>&1 || true
+
+echo "hypr-window-shadow: aplicado '$style'"

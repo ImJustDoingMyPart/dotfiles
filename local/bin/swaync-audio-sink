@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Helper para el menú de audio de swaync (~/.config/swaync/config.json, menu#audio).
+#
+# Existe para sacar la lógica del config.json: un one-liner "sh -c '...'" con comillas
+# anidadas ahí rompía swaync ("EOF inesperado mientras se buscaba un ' coincidente" en el
+# journal) — más simple mover esto a un script de verdad que pelear el escapado dentro de
+# JSON dentro de shell.
+
+case "$1" in
+    set)
+        pactl set-default-sink "$2"
+        ;;
+    is-active)
+        [ "$(pactl get-default-sink)" = "$2" ] && echo true || echo false
+        ;;
+    *)
+        echo "uso: swaync-audio-sink {set|is-active} <sink>" >&2
+        exit 1
+        ;;
+esac

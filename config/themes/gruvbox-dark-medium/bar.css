@@ -1,0 +1,19 @@
+/* Gruvbox Dark Medium — tema curado, portado de nickjj/dotfriedrice.
+ * Las dos primeras son las suyas; el resto las suma nuestro style.css (estados y borde
+ * de tooltip), con colores del mismo palette de gruvbox. */
+@define-color foreground #d4be98;
+@define-color background rgba(0, 0, 0, 0.70);
+@define-color accent     #83a598;
+@define-color urgent     #ea6962;
+@define-color warning    #d8a657;
+@define-color tooltip        #282828;
+@define-color tooltip-border #504945;
+
+/* Agregados el 2026-08-14 junto con la migracion a Ironbar. Equivalentes gruvbox de los
+ * roles nuevos del template de matugen: fg4 para lo atenuado, el azul del palette como
+ * segundo acento, y bg1 como superficie elevada. */
+@define-color muted    #a89984;
+@define-color second   #a9b665;
+@define-color third    #d8a657;
+@define-color elevated #3c3836;
+@define-color on-accent #1d2021;

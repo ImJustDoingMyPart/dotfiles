@@ -1,4 +1,4 @@
-// Waybar 0.15.0 — barra del escritorio niri.
+// Waybar 0.15.0 — barra del escritorio (Hyprland).
 //
 // Base: nickjj/dotfriedrice (.config/waybar/config.jsonc), adaptada a esta máquina.
 // Toda clave escrita acá está verificada contra los man pages que instala el propio
@@ -8,109 +8,142 @@
 // Diferencias contra dotfriedrice y por qué:
 //   - Sin `battery`: esto es un desktop.
 //   - Sin `mpd`: no hay mpd. Se usa `mpris`, que lee cualquier reproductor MPRIS.
-//   - Se suman `memory`, `temperature` (CPU) y `custom/gpu`: la máquina es un desktop
+//   - Se suma `custom/system` (CPU, RAM y GPU en un ícono): la máquina es un desktop
 //     con RX 6700 XT y eso es lo que interesa mirar.
-//   - `niri/workspaces` va SIN on-click/on-click-right/on-click-middle: esas claves no
-//     están documentadas para este módulo en 0.15.0 (`man 5 waybar-niri-workspaces` solo
-//     lista all-outputs, format, format-icons, disable-click, disable-markup,
-//     current-only, on-update, expand). El click izquierdo ya cambia de workspace por
-//     defecto (disable-click = false). Overview y niri actions se abren desde
-//     `custom/menu`, donde on-click* SÍ está documentado.
-//   - El calendario no lleva colores hardcodeados: solo <b>/<u>, para que herede el
-//     color del tema y el archivo siga siendo agnóstico de color.
+//   - `hyprland/workspaces` MUESTRA bien pero en 0.15.0 el click no cambia de workspace
+//     con Hyprland >= 0.55 (issues #5008 y #5198; los arreglos entraron después de la
+//     release). Hasta Waybar 0.16 se cambia de workspace con el teclado.
 {
   "reload_style_on_change": true,
   "layer": "top",
   "position": "top",
   "spacing": 0,
-  "height": 24,
+  "height": 28,
 
   // `mpris`/`custom/mpris` se mudó acá el 2026-08-25 (a pedido de Roberto), a la derecha
   // de los workspaces. Sigue INVISIBLE cuando no hay nada sonando (texto vacío, ver
-  // waybar-mpris) así que no ocupa lugar en reposo.
+  // waybar-mpris) así que no ocupa lugar en reposo. VENTANA (ventana de scroll del título)
+  // se acotó a 18 caracteres el 2026-09-10 — ver el docstring largo junto a
+  // `modules-center` sobre por qué un ancho variable acá corre el reloj, y por qué NO se
+  // puede arreglar espejando el ancho del lado derecho.
   "modules-left": [
-    "custom/menu",
-    "niri/workspaces",
-    "custom/mpris"
+    "hyprland/workspaces"
   ],
   // Centrado por SIMETRÍA DE ESPEJOS, igual que en Ironbar (ver el docstring de
   // `weather-forecast`, sección "EL MODO --pad"): `custom/weather-pad` y `clock#date-pad`
   // repiten el MISMO texto que `custom/weather` y `clock#date` con `color: transparent`
   // en style.css. Miden igual por construcción (mismo script/mismo format), así que el
   // ':' de `clock#time` cae en el centro sin ninguna cuenta que mantener.
+  //
+  // OJO, esto solo garantiza que el ':' esté en el centro DEL BLOQUE modules-center. Ese
+  // bloque a su vez lo centra Waybar según cuánto pesan modules-left y modules-right —
+  // NO según el centro absoluto de la pantalla. Medido el 2026-09-10 (capturas + CSS de
+  // depuración con fondos de color para ubicar los bordes de cada caja en píxeles): el
+  // corrimiento del bloque es la mitad de la diferencia (ancho izquierda − ancho derecha).
+  //
+  // Se probó "espejar" `custom/mpris` con un módulo invisible del mismo ancho en
+  // modules-right (`custom/mpris-pad`) para cancelar esa diferencia — funciona en teoría,
+  // pero en la práctica cuando el título scrollea a los 42 caracteres originales, sumar
+  // ese ancho DOS VECES (una vez real, una vez espejada) hace que el total de las tres
+  // cajas supere el ancho de la pantalla, y GTK responde escondiendo por completo
+  // los módulos de la derecha (dejaron de aparecer del todo, no solo de
+  // achicarse) — peor que el problema original. Se revirtió el mismo día.
+  //
+  // La solución que quedó es la más simple que de verdad no tiene efectos secundarios:
+  // acotar VENTANA en waybar-mpris a 18 caracteres (antes 42), para que el salto de ancho
+  // al arrancar/parar música sea chico en vez de grande. El reloj sigue sin estar 100%
+  // clavado en el píxel absoluto de la pantalla —eso exigiría que TODO módulo variable de
+  // ambos lados sumara siempre lo mismo en las dos cajas, y no hay margen para duplicar tanto
+  // contenido sin que algo se recorte—, pero el corrimiento que queda es de un puñado de
+  // píxeles, no de cientos.
   "modules-center": [
-    "custom/weather-pad",
-    "custom/date",
-    "clock#time",
-    "custom/weather",
-    "custom/date-pad"
+    "group/center-pill"
   ],
-  // Orden pedido por Roberto (2026-08-05), de izquierda a derecha:
-  //   bandeja · volumen% · RAM% · GPU% · CPU% · notificaciones
+  // De izquierda a derecha: bandeja · volumen% · sistema · notificaciones
+  //
+  // `custom/system` es UN ícono para CPU, RAM y GPU, con los tres valores en el tooltip.
+  // Los tres porcentajes sueltos casi siempre marcaban números chicos y sus glifos se
+  // confundían entre sí (el de RAM parecía un procesador, el de GPU una batería).
   //
   // SE QUITARON: `bluetooth`, `network` y `temperature`. Los dos primeros porque casi no
-  // se usan y ensuciaban; el tercero porque el porcentaje de CPU ya dice lo que interesa.
+  // se usan y ensuciaban; la temperatura de CPU está en el tooltip de `custom/system`.
   // Nada se pierde: bluetooth y red siguen a un Mod+Comma de distancia en el providerlist
   // (`menus:network` y el provider `bluetooth`).
   //
-  // `memory`/`cpu` pasaron a `custom/memory`/`custom/cpu` el 2026-08-25 (a pedido de
-  // Roberto): el módulo nativo `cpu` IGNORA `tooltip-format` por completo (verificado
-  // contra el binario 0.15.0 — arma su propio tooltip "Total/CoreN" y no lee esa clave),
-  // y ninguno de los dos módulos nativos tiene un campo de temperatura. Sin `custom` no
-  // hay forma de que el hover muestre la temperatura real en vez de ese texto fijo o
-  // nada. Ver `~/.local/bin/waybar-cpu` / `waybar-mem`.
+  // Es `custom` y no los módulos nativos porque `cpu` IGNORA `tooltip-format` (verificado
+  // contra el binario 0.15.0: arma su propio tooltip "Total/CoreN") y ni `cpu` ni `memory`
+  // tienen campo de temperatura.
   "modules-right": [
     "group/tray-expander",
-    "pulseaudio",
-    "custom/memory",
-    "custom/gpu",
-    "custom/cpu",
-    "custom/notification",
-    "custom/session"
+    "custom/notification"
   ],
 
-  // Menú de sesión en el extremo derecho: bloquear, suspender, cerrar sesión, reiniciar
-  // y apagar. Abre el MISMO menú que Mod+X (`menus:session`), que por eso dejó de
-  // listarse en el providerlist de Mod+Comma — con la barra y la tecla ya hay dos puertas.
-  //
-  // El glifo es U+F0425 (nf-md-power), VERIFICADO contra el charset de la fuente antes de
-  // escribirlo:  fc-list --format='%{charset}\n' "JetBrainsMono Nerd Font"
-  "custom/session": {
-    "format": "󰐥",
-    "tooltip-format": "Sesión",
-    "on-click": "walker --provider menus:session"
-  },
+  // SACADO (2026-09-03): el botón de sesión que había acá abría el menú de power, pero
+  // desde que volvió swaync su control center trae `menu#session` con las mismas cinco
+  // acciones (~/.config/swaync/config.json) — una tercera puerta a lo mismo era ruido. El
+  // menú de power (rofi-power-menu) sigue vivo por Mod+X.
 
-  // mako no tiene un modo de streaming como el `swaync-client -swb` que se usaba antes,
-  // así que el estado lo arma waybar-mako y se consulta por intervalo.
+  // `-swb` es el modo streaming nativo de swaync, documentado en
+  // `/usr/share/doc/swaync/README.md`: el módulo se actualiza solo, sin consultar por
+  // intervalo. Formato e íconos son el ejemplo oficial de esa doc, verbatim.
   "custom/notification": {
-    "exec": "waybar-mako",
-    "return-type": "json",
-    "format": "{}",
-    "interval": 3,
     "tooltip": true,
-    // Izquierdo abre el historial en walker; derecho alterna No molestar.
-    "on-click": "walker --provider menus:notifications",
-    "on-click-right": "makoctl mode -t do-not-disturb"
+    "format": "{icon}",
+    "format-icons": {
+      "notification": "󰨝",
+      "none": "󰨝",
+      "dnd-notification": "󰂠",
+      "dnd-none": "󰪓",
+      "inhibited-notification": "󰂛",
+      "inhibited-none": "󰪑",
+      "dnd-inhibited-notification": "󰂛",
+      "dnd-inhibited-none": "󰪑"
+    },
+    "return-type": "json",
+    "exec-if": "which swaync-client",
+    "exec": "swaync-client -swb",
+    // Izquierdo abre el panel de swaync; derecho alterna No molestar.
+    "on-click": "swaync-client -t -sw",
+    "on-click-right": "swaync-client -d -sw",
+    "escape": true
   },
 
   "custom/menu": {
     "format": "󰣇",
-    // Mismo índice que Mod+Comma: el menú `system`, no el provider `providerlist`. Ver el
-    // comentario en cfg/keybinds.kdl — es lo que permite volver atrás desde cada submenú.
-    "on-click": "walker --provider menus:system",
-    "on-click-right": "walker --height 980 --width 980 --provider menus:keybinds",
-    "on-click-middle": "walker --height 980 --width 800 --provider menus:waybar",
-    "on-click-forward": "walker --provider menus:themes",
-    "on-click-backward": "niri msg action toggle-overview",
+    // Mismo índice que Mod+Comma (~/.config/rofi/scripts/system-index). Saltar directo a
+    // una hoja es ROFI_INFO=leaf:<nombre> antes de invocar rofi: el script lee esa env var
+    // en su llamada inicial igual que la reciría de una fila propia (ver el script, línea
+    // `info="${ROFI_INFO:-top}"`). Mismo toggle pgrep/pkill que usan los binds de binds.lua.
+    "on-click": "sh -c \"pgrep -x rofi >/dev/null && pkill -x rofi || rofi -show system-index -modes system-index:/home/anon/.config/rofi/scripts/system-index -no-sort -eh 2 -kb-move-char-back Control+b -kb-move-char-forward Control+f -kb-accept-entry 'Control+j,Control+m,Return,KP_Enter,Right' -kb-custom-1 Left\"",
+    "on-click-right": "sh -c \"pgrep -x rofi >/dev/null && pkill -x rofi || ROFI_INFO=leaf:keybinds rofi -show system-index -modes system-index:/home/anon/.config/rofi/scripts/system-index -no-sort -eh 2 -kb-move-char-back Control+b -kb-move-char-forward Control+f -kb-accept-entry 'Control+j,Control+m,Return,KP_Enter,Right' -kb-custom-1 Left\"",
+    "on-click-middle": "sh -c \"pgrep -x rofi >/dev/null && pkill -x rofi || ROFI_INFO=leaf:waybar rofi -show system-index -modes system-index:/home/anon/.config/rofi/scripts/system-index -no-sort -eh 2 -kb-move-char-back Control+b -kb-move-char-forward Control+f -kb-accept-entry 'Control+j,Control+m,Return,KP_Enter,Right' -kb-custom-1 Left\"",
+    "on-click-forward": "sh -c \"pgrep -x rofi >/dev/null && pkill -x rofi || ROFI_INFO=leaf:themes rofi -show system-index -modes system-index:/home/anon/.config/rofi/scripts/system-index -no-sort -eh 2 -kb-move-char-back Control+b -kb-move-char-forward Control+f -kb-accept-entry 'Control+j,Control+m,Return,KP_Enter,Right' -kb-custom-1 Left\"",
+    "on-click-backward": "sh -c 'pgrep -x rofi >/dev/null && pkill -x rofi || rofi -show window'",
     "tooltip-format": "Menú del sistema"
   },
 
   // `{index}` y no `{icon}`: con format-icons, los workspaces sin entrada propia
   // renderizaban CADENA VACÍA y quedaban invisibles. El número siempre se ve, y el
   // estado (activo / urgente) lo marca el CSS, que es donde corresponde.
-  "niri/workspaces": {
-    "format": "{index}"
+  // Mínimo 3 workspaces visibles (ocupados o no) vía persistent-workspaces.
+  "hyprland/workspaces": {
+    "format": "{icon}",
+    "format-icons": {
+      "1": "I",
+      "2": "II",
+      "3": "III",
+      "4": "IV",
+      "5": "V",
+      "6": "VI",
+      "7": "VII",
+      "8": "VIII",
+      "9": "IX",
+      "10": "X",
+      "default": "{id}"
+    },
+    "persistent-workspaces": {
+      "*": 3
+    }
   },
 
   // Relleno INVISIBLE, y el único módulo de la barra que no muestra nada.
@@ -138,6 +171,12 @@
   "custom/weather-pad": {
     "exec": "weather-forecast --pad",
     "interval": 900,
+    // El scroll/click de `custom/weather` no llega acá (recibe el evento el widget bajo
+    // el mouse, y éste es invisible). `weather-forecast --nav` manda SIGRTMIN+1 al
+    // escribir el índice para que el espejo se reacomode EN EL MISMO instante — si
+    // esperara al próximo `interval`, el ':' del reloj se correría mientras tanto. Ver
+    // el docstring de `weather-forecast`.
+    "signal": 1,
     "hide-empty-text": true,
     "tooltip": false
   },
@@ -154,27 +193,29 @@
   // Se pierde el grid del mes en el tooltip nativo y el scroll-para-cambiar-de-mes de
   // `clock` (un `custom` no tiene esas actions) — se acepta la pérdida a cambio de tener
   // fecha en español, porque el calendario de verdad (con eventos de Google Calendar)
-  // ya vive en el popup de walker, que es estrictamente más útil que el grid offline.
+  // ya vive en la hoja "Agenda" de system-index, estrictamente más útil que el grid offline.
   //
   // `%a %d %b` en es_AR.utf8 sigue midiendo 10 caracteres (3+1+2+1+3: "mar 25 ago",
   // "dom 15 mar", "mié 12 nov"...) — comprobado con `date -d` sobre los 7 días de la
   // semana. Ese 10 sigue siendo la constante `CELDAS_FECHA` de `weather-forecast`.
   "custom/date": {
-    "exec": "date '+%a %d %b'",
-    // Basta con el minuto: lo único que cambia acá es a medianoche.
+    "exec": "waybar-date",
+    "return-type": "json",
     "interval": 60,
     "tooltip": false,
+    "escape": false,
     // Izquierdo Y derecho abren el mismo popup — paridad con Ironbar (config.json:
     // `clock-date` tiene `on_click_left` y `on_click_right` apuntando los dos acá).
-    "on-click": "walker --provider menus:calendar",
-    "on-click-right": "walker --provider menus:calendar"
+    "on-click": "swaync-client -t -sw",
+    "on-click-right": "swaync-client -t -sw"
   },
 
   // Espejo invisible de `custom/date`, del lado derecho del reloj — el otro lado de la
   // simetría. MISMO `exec` que `custom/date` (así pesa igual, y no hay drift posible:
   // mismo comando, mismo momento); sin tooltip ni clicks porque no se ve ni se toca.
   "custom/date-pad": {
-    "exec": "date '+%a %d %b'",
+    "exec": "waybar-date",
+    "return-type": "json",
     "interval": 60,
     "tooltip": false
   },
@@ -191,7 +232,7 @@
   // formato mide distinto: al togglear, el ':' se corría. Los segundos no se miran en una
   // barra y el año está en el grid del tooltip de la fecha.
   "clock#time": {
-    "format": "·  {:%H:%M}  ·",
+    "format": "{:%H:%M}",
     "interval": 1,
     "tooltip": false
   },
@@ -224,11 +265,12 @@
     "hide-empty-text": true,
     "interval": 900,
     "tooltip": true,
-    // Izquierdo Y derecho: el pronóstico de la semana en walker — paridad con Ironbar
-    // (config.json: `weather` tiene `on_click_left` y `on_click_right` los dos acá). El
-    // tooltip del hover cubre el detalle de hoy.
-    "on-click": "walker --provider menus:weather",
-    "on-click-right": "walker --provider menus:weather"
+    // Scroll cicla los 7 días del pronóstico, click izquierdo repone hoy. El derecho abre
+    // la semana completa en la hoja "Clima" de system-index.
+    "on-click": "weather-forecast --notify",
+    "on-click-right": "swaync-client -t -sw",
+    "on-scroll-up": "weather-forecast --nav +1",
+    "on-scroll-down": "weather-forecast --nav -1"
   },
 
   // `mpris` nativo → `custom/mpris` el 2026-08-25 (a pedido de Roberto). Primero se le
@@ -283,7 +325,25 @@
   // esto).
   "tray": {
     "icon-size": 14,
-    "spacing": 17
+    "spacing": 10,
+
+    // Los íconos salen del paquete apuntado por ~/.local/share/waybar-tray/icons/pack
+    // (ver el drop-in tray-icons.conf de waybar.service). Acá van SOLO los ítems que
+    // no consultan el tema por su cuenta: vesktop y openrgb publican un pixmap crudo,
+    // y Steam impone su propio IconThemePath con un PNG de su directorio. Darles un
+    // nombre los mete en la resolución normal del tema.
+    //
+    // Cachy-Update NO va acá a propósito: publica IconName y cambia de ícono al
+    // detectar updates (escribe el nombre en ~/.local/state/arch-update/tray_icon y
+    // el tray lo relee por inotify). Un override de este mapa se pierde en ese
+    // cambio, porque Waybar solo lo aplica cuando llega la propiedad `Id` y el
+    // NewIcon repone IconName sin volver a pasar por ahí. Sus dos nombres se pisan
+    // desde el tema `Bandeja`, que sí sobrevive al cambio de estado.
+    "icons": {
+      "steam": "steam",
+      "openrgb": "openrgb",
+      "vesktop_status_icon_1": "vesktop"
+    }
   },
 
   "pulseaudio": {
@@ -294,43 +354,96 @@
       "default": ["󰕿", "󰖀", "󰕾"]
     },
     "scroll-step": 5,
-    // Izquierdo abre el MISMO tipo de superficie que bluetooth: un provider de walker.
-    // Antes abría wiremix en una terminal, que al lado del launcher GTK del bluetooth se
-    // veía como dos sistemas distintos.
-    // wiremix sigue accesible en el click del medio, para lo que el provider no cubre:
+    // SIN on-click (2026-09-03): izquierdo abría el selector de salida por defecto. Desde
+    // que volvió swaync, su control center cubre lo mismo con el widget `volume` y
+    // `menu#audio` (~/.config/swaync/config.json) — abrir el panel de swaync ya está a un
+    // click del widget de notificaciones. El selector por aplicación sigue disponible como
+    // hoja "Audio por aplicación" en Multimedia dentro de system-index (Mod+Comma). Este
+    // widget de volumen no lleva a nada en su click izquierdo.
+    // wiremix sigue accesible en el click del medio, para lo que ningún menú cubre:
     // ruteo por aplicación (Spotify a parlantes y Discord a auriculares a la vez).
-    "on-click": "walker --provider wireplumber",
     "on-click-middle": "kitty --class wiremix wiremix",
     "on-click-right": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
   },
 
-  // Waybar no trae módulo de GPU; el script lee sysfs de amdgpu por ruta PCI estable.
-  "custom/gpu": {
-    "exec": "waybar-gpu",
+  // CPU, RAM y GPU juntos (ver `~/.local/bin/waybar-sys`): el texto es solo el glifo, el
+  // tooltip trae los tres valores y la clase warning/critical es la peor de las tres.
+  // `waybar-cpu`/`-mem`/`-gpu` siguen siendo la fuente de cada valor y de cada umbral.
+  "custom/system": {
+    "exec": "waybar-sys",
     "return-type": "json",
-    "format": "󰢮 {}",
-    "interval": 5,
-    "on-click": "kitty --class btop btop"
-  },
-
-  // `states`/`tooltip-format` no existen para módulos `custom` — la clase warning/critical
-  // y el tooltip los arma el script (mismos umbrales que tenía el módulo nativo: 80/92).
-  // Ver el comentario largo junto a `modules-right` sobre por qué se necesitó el cambio.
-  "custom/memory": {
-    "exec": "waybar-mem",
-    "return-type": "json",
-    "format": "󰍛 {}",
-    "interval": 5,
-    "on-click": "kitty --class btop btop"
-  },
-
-  // Mismos umbrales que tenía el módulo nativo (80/95).
-  "custom/cpu": {
-    "exec": "waybar-cpu",
-    "return-type": "json",
-    "format": "󰘚 {}",
+    "format": "{}",
     "interval": 5,
     "on-click": "kitty --class btop btop"
   }
 
+,
+
+  "group/center-pill": {
+    "orientation": "horizontal",
+    "modules": [
+      "custom/date",
+      "custom/separator",
+      "clock#time"
+    ]
+  },
+
+  "custom/separator": {
+    "format": "›",
+    "tooltip": false
+  },
+
+  // Píldora de ajustes rápidos / Centro de control (abre swaync)
+  "group/quicksettings": {
+    "orientation": "horizontal",
+    "modules": [
+      "pulseaudio#quicksettings",
+      "network#quicksettings",
+      "custom/tools",
+      "custom/notification",
+      "custom/session"
+    ]
+  },
+
+  "pulseaudio#quicksettings": {
+    "format": "{icon}",
+    "format-muted": "󰝟",
+    "format-bluetooth": "{icon}",
+    "format-icons": {
+      "default": ["󰕿", "󰖀", "󰕾"]
+    },
+    "tooltip": false,
+    "on-click": "swaync-client -t -sw"
+  },
+
+  "network#quicksettings": {
+    "format-wifi": "󰤨",
+    "format-ethernet": "󰈀",
+    "format-disconnected": "󰤮",
+    "tooltip": false,
+    "on-click": "swaync-client -t -sw"
+  },
+
+  "custom/tools": {
+    "format": "",
+    "tooltip": false,
+    "on-click": "swaync-client -t -sw"
+  },
+
+  "custom/session": {
+    "format": "󰐥",
+    "tooltip": false,
+    "on-click": "swaync-client -t -sw"
+  }
+,
+
+  "custom/separator#1": {
+    "format": "│",
+    "tooltip": false
+  },
+
+  "custom/separator#2": {
+    "format": "•",
+    "tooltip": false
+  }
 }

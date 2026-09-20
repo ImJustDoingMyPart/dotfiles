@@ -8,11 +8,10 @@
 #
 # Modelo (el de dotfriedrice): un directorio por tema, un archivo por app adentro.
 # Activar = SYMLINKEAR el archivo que cada app espera al del tema activo. Así ninguna
-# app necesita saber que existe un switcher: ironbar importa siempre "./theme.css" y
-# walker siempre "./theme.css"; lo que cambia es a dónde apunta ese symlink.
+# app necesita saber que existe un switcher: ironbar importa siempre "./theme.css".
 #
 #   ~/.config/themes/<tema>/bar.css     <-  ~/.config/ironbar/theme.css
-#   ~/.config/themes/<tema>/walker.css  <-  ~/.config/walker/themes/base/theme.css
+#                                       <-  ~/.config/waybar/theme.css
 #
 # El tema "matugen" es especial: sus archivos no están versionados, los escribe matugen
 # desde el wallpaper (ver theme-matugen). Es la mitad "color generado" del híbrido —
@@ -27,15 +26,15 @@ ACTIVE_FILE="$THEMES_DIR/.activo"
 # espacios (gtk.css va a GTK3 y GTK4, que son dos árboles de config distintos con el
 # mismo contenido).
 declare -A TARGETS=(
-  [bar.css]="$HOME/.config/ironbar/theme.css"
-  [walker.css]="$HOME/.config/walker/themes/base/theme.css"
-  [niri.kdl]="$HOME/.config/niri/theme-colors.kdl"
+  [bar.css]="$HOME/.config/waybar/theme.css"
+  [rofi.rasi]="$HOME/.config/rofi/colors.rasi"
+  [hyprland.lua]="$HOME/.config/hypr/cfg/theme-colors.lua"
   [kitty.conf]="$HOME/.config/kitty/themes/theme.conf"
-  # Alacritty: se conserva mientras dure la convivencia con kitty (migración 2026-08-07).
-  [alacritty.toml]="$HOME/.config/alacritty/themes/theme.toml"
   [btop.theme]="$HOME/.config/btop/themes/theme.theme"
   [gtk.css]="$HOME/.config/gtk-3.0/theme.css $HOME/.config/gtk-4.0/theme.css"
-  [mako]="$HOME/.config/mako/theme"
+  # swaync importa "./theme.css" desde su style.css, igual que waybar: lo que cambia al
+  # cambiar de tema es a dónde apunta ese symlink, y el style.css no se entera.
+  [swaync.css]="$HOME/.config/swaync/theme.css"
   # swayosd busca solo su style.css en ~/.config/swayosd/; no hace falta pasarle -s.
   [swayosd.css]="$HOME/.config/swayosd/style.css"
   # hyprlock SÍ soporta `source`, así que el archivo del tema trae solo los colores y la

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Exit 0 si el panel de swaync (swaync-control-center) está abierto, 1 si no.
+#
+# Existe para que los OSD de volumen y brillo (swayosd) no se dupliquen con el panel:
+# si el panel ya está mostrando el nivel en su propio slider, mostrar TAMBIÉN el OSD
+# flotante es ruido. La lista de capas del compositor es la única fuente confiable de
+# esto — swaync no expone un query de "¿estoy abierto?" (swaync-client --help no tiene
+# esa opción).
+
+hyprctl -j layers 2>/dev/null | jq -e '.. | objects | select(.namespace? == "swaync-control-center")' >/dev/null

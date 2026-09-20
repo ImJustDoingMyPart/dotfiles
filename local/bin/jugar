@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Corre un juego con un inhibidor de inactividad tomado, para que la pantalla no se apague ni
+# se bloquee en medio de una partida.
+#
+# El problema: hypridle apaga las pantallas a los 10 min y bloquea a los 20, y ese reloj lo
+# lleva el compositor a partir del input que ÉL ve. El joystick no pasa por el compositor —lo
+# lee el juego directo de /dev/input—, así que una sesión larga con mando cuenta como
+# inactividad. Gamescope tampoco ayuda: su binario no referencia ninguno de los protocolos de
+# inhibición de Wayland (verificado con `strings`), o sea que no pide nada.
+#
+# La salida es logind: hypridle honra los inhibidores de systemd salvo que se le ponga
+# `general:ignore_systemd_inhibit`, que acá no está. Comprobado en su journal mientras corría
+# un `systemd-inhibit` de prueba:
+#
+#     [LOG] systemd idle inhibit active
+#     [LOG] Inhibit locks: 1
+#
+# El inhibidor vive exactamente lo que vive el proceso: `systemd-inhibit` lo suelta al salir,
+# así que no queda estado que limpiar si el juego se cae.
+#
+# Uso, en Steam → Propiedades → Parámetros de lanzamiento:
+#
+#     jugar -- %command%
+#
+# y también sirve a mano: `jugar mpv pelicula.mkv`, `jugar -- gamescope -f -- %command%`.
+
+set -euo pipefail
+
+# `jugar -- comando` y `jugar comando` son lo mismo: el `--` es para que Steam no se confunda.
+if [[ ${1:-} == "--" ]]; then
+    shift
+fi
+
+if [[ $# -eq 0 ]]; then
+    echo "Uso: jugar [--] <comando> [args...]" >&2
+    exit 1
+fi
+
+exec systemd-inhibit \
+    --what=idle \
+    --who="$(basename -- "$1")" \
+    --why="juego en curso" \
+    -- "$@"

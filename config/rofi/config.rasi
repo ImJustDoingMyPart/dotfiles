@@ -1,0 +1,39 @@
+configuration {
+    show-icons: true;
+    cycle: true;
+
+    /* El índice de Mod+Space es drun a secas (apps instaladas). Antes combinaba
+     * drun + window en un combi, pero se probó en pantalla y las entradas de
+     * ventana (prefijo "$" + título crudo, sin el ícono de la app) se veían pegadas
+     * de forma horrible contra la lista de apps. El cambio de ventana tiene sus
+     * propios binds (Mod+Tab, Mod+D/O con `rofi -show window`, run-or-cycle), así
+     * que no hace falta duplicarlo acá.
+     *
+     * calc sigue aparte, en su propio bind con `-show calc` (ver hypr/cfg/binds.lua):
+     * ese modo imprime el resultado en vivo en el widget "message", que un combi
+     * no expone — no aplica acá porque ya no hay combi, pero la razón de fondo
+     * (calc necesita "message", que solo existe fuera de una lista combinada)
+     * sigue siendo válida si combi vuelve a usarse en el futuro. */
+    modes: [ drun, window ];
+
+    /* Mismo tono que system-index: el prompt es un nombre humano, no el del modo, y el
+     * nombre genérico va con el mismo span tenue (small, 55%) que los subtítulos del
+     * índice, no en la itálica entre paréntesis que trae rofi de fábrica. */
+    display-drun: "Apps";
+    display-window: "Ventanas";
+    display-calc: "Calcular";
+    drun-display-format: "{name}[<span size='small' alpha='55%'>  ·  {generic}</span>]";
+
+    /* Sin esto, un click NO abre la entrada: el default de rofi es que el primer
+     * click solo selecciona (me-select-entry: MousePrimary) y hace falta un segundo
+     * click, o doble-click, para aceptar (me-accept-entry). La receta es la que da
+     * el man page para "hover-select y aceptar en un solo click": hover ya selecciona,
+     * así que el primer click alcanza para abrir. */
+    hover-select: true;
+    me-select-entry: "";
+    me-accept-entry: "MousePrimary";
+}
+
+@theme "./layout.rasi"
+
+/* Modificaciones puntuales van acá abajo, fase por fase (Fase 3 en adelante). */

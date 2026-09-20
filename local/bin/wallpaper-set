@@ -36,6 +36,44 @@ fi
 # dependería del directorio desde el que se ejecutó el menú.
 img=$(realpath "$img")
 
+# ─── Varios cambios seguidos: dos colas, y gana el último ───
+#
+# El selector lanza esto DESPRENDIDO, para no congelarse lo que tarda: ~5 s por corrida
+# en Hyprland según el journal, casi todo después del fondo visible (matugen y el
+# theme-reload que reinicia la barra, swayosd, recarga Hyprland...). El costo de
+# desprender es que varios Enter seguidos dejan corridas encimadas, y todas escriben los
+# mismos archivos —lo caro de arreglar si sale a medias son los templates de matugen—.
+#
+# Con UNA sola cola para todo el script, cada fondo esperaba la corrida entera del
+# anterior antes de siquiera aparecer: el primero salía al instante y los siguientes
+# de a uno cada ~5 s. Por eso hay dos locks:
+#
+#   fd 8, corto   solo `awww img`: el fondo cambia apenas se elige, aunque el tema del
+#                 anterior siga calculándose.
+#   fd 9, largo   las copias y matugen, lo que se ve después.
+#
+# Y en los dos, al conseguir el lock, una corrida que ya no es la última pedida (el
+# archivo de estado se escribe ANTES de hacer cola, así que dice cuál es) se retira sin
+# hacer nada: calcular el tema de un fondo que ya se reemplazó son 5 s tirados. Gana la
+# ÚLTIMA elegida, y como mucho una corrida pesada queda esperando detrás de la actual.
+#
+# Vive acá y no en quien llama porque este script es el punto único por donde pasa un
+# cambio de fondo: así también quedan cubiertas la rotación automática (wallpaper-rotate)
+# y cualquier llamada desde la terminal. Los locks se sueltan solos al salir, sin trap:
+# los libera el kernel cuando se cierra el fd.
+mkdir -p "$(dirname "$STATE_FILE")"
+printf '%s\n' "$img" > "$STATE_FILE"
+
+sigue_siendo_el_ultimo() {
+  [[ $(head -1 "$STATE_FILE" 2>/dev/null) == "$img" ]] && return 0
+  echo "wallpaper-set: $img ya fue reemplazado por otro pedido, no se aplica"
+  return 1
+}
+
+exec 8>"${XDG_RUNTIME_DIR:-/tmp}/wallpaper-set-img.lock"
+flock 8
+sigue_siendo_el_ultimo || exit 0
+
 # awww img falla si el daemon no está corriendo, así que se levanta on-demand.
 # En uso normal ya lo levantó el autostart; esto cubre el primer arranque y el
 # caso de que se haya caído.
@@ -57,60 +95,24 @@ fi
 # `WALLPAPER_TRANSITION=<tipo>` sigue funcionando como antes y desactiva el sorteo — el script
 # lo respeta y devuelve ese tipo pelado.
 #
-# Se sortea UNA sola vez y se reusa para las dos capas: el fondo del escritorio y el backdrop
-# del overview tienen que animarse con el mismo efecto, o al abrir el overview durante un
-# cambio se ven dos transiciones distintas corriendo. Y va DESPUÉS del `--actual` de arriba a
-# propósito: esa rama es una consulta, no un cambio de fondo, y quemarle un sorteo en cada
-# llamada le arruinaría al script del sorteo la regla de "no repetir la anterior".
+# Va DESPUÉS del `--actual` de arriba a propósito: esa rama es una consulta, no un cambio de
+# fondo, y quemarle un sorteo en cada llamada le arruinaría al script del sorteo la regla de
+# "no repetir la anterior".
 mapfile -t TRANSICION < <(wallpaper-transition)
 
 awww img "$img" "${TRANSICION[@]}"
 
-mkdir -p "$(dirname "$STATE_FILE")"
-printf '%s\n' "$img" > "$STATE_FILE"
+# Fin de la parte visible: se suelta el lock corto y se hace cola en el largo.
+exec 8>&-
+exec 9>"${XDG_RUNTIME_DIR:-/tmp}/wallpaper-set.lock"
+flock 9
+sigue_siendo_el_ultimo || exit 0
 
-# ─── Copia desenfocada para el fondo del overview ───
-#
-# El overview de niri muestra el "backdrop", una capa aparte de la del escritorio. La
-# opción `place-within-backdrop` MUEVE una capa ahí en vez de duplicarla, así que
-# aplicársela a la capa del escritorio deja el escritorio sin fondo (pasó el 2026-08-04).
-# Por eso hay un SEGUNDO daemon de awww, con namespace propio, que publica una segunda
-# capa dedicada al backdrop: ~/.config/systemd/user/awww-backdrop.service.
-#
-# El desenfoque va horneado en la imagen y NO lo hace el compositor: el
-# `background-effect { blur }` de una layer-rule desenfoca lo que está DETRÁS de la
-# superficie, y una capa de wallpaper es opaca y no tiene nada detrás (probado el
-# 2026-08-05: el overview salía igual de nítido). Es el mismo enfoque que usaba Noctalia,
-# que publicaba su "noctalia-backdrop" ya blureado y tintado.
-#
-# El truco del `-resize 25% / -blur / -resize 400%`: desenfocar a resolución completa es
-# caro y da lo mismo a la vista. Así tarda ~0,36 s con un wallpaper de 4K.
-BACKDROP_IMG="$HOME/.local/state/wallpaper-backdrop.png"
-BACKDROP_BLUR="${WALLPAPER_BACKDROP_BLUR:-0x8}"
-# Se oscurece un poco para que las ventanas del overview se despeguen del fondo.
-BACKDROP_DIM="${WALLPAPER_BACKDROP_DIM:--12x-8}"
-
-if command -v magick >/dev/null; then
-  geom=$(niri msg outputs 2>/dev/null |
-    sed -n 's/^\s*Current mode:\s*\([0-9]\+x[0-9]\+\).*/\1/p' | head -1)
-  geom="${geom:-1920x1080}"
-
-  magick "$img" -resize "${geom}^" -gravity center -extent "$geom" \
-    -resize 25% -blur "$BACKDROP_BLUR" -resize 400% \
-    -brightness-contrast "$BACKDROP_DIM" \
-    -strip "PNG24:$BACKDROP_IMG" 2>/dev/null || rm -f "$BACKDROP_IMG"
-fi
-
-# El daemon del backdrop puede no estar corriendo (sesión vieja, servicio deshabilitado).
-# Si no está, esto no rompe nada: el overview simplemente vuelve al color plano.
-#
-# `--namespace=-backdrop` CON EL IGUAL, no separado por espacio: el namespace empieza con
-# guion y el parser de argumentos de awww lo toma como una opción corta ("unexpected
-# argument '-b' found"). Con el espacio, el comando falla, este `if` da falso y la copia
-# desenfocada nunca llega al daemon — que fue justo lo que pasó la primera vez.
-if [[ -r $BACKDROP_IMG ]] && awww query --namespace=-backdrop >/dev/null 2>&1; then
-  awww img "$BACKDROP_IMG" --namespace=-backdrop "${TRANSICION[@]}"
-fi
+get_screen_geom() {
+  local g
+  g=$(hyprctl -j monitors 2>/dev/null | jq -r '.[0] | "\(.width)x\(.height)"' 2>/dev/null || true)
+  echo "${g:-1920x1080}"
+}
 
 # ─── Copia para el lock ───
 # hyprlock lee su fondo de una RUTA FIJA (~/.config/hypr/hyprlock.conf): su config es
@@ -127,11 +129,7 @@ fi
 LOCK_IMG="$HOME/.local/state/wallpaper-lock.png"
 
 if command -v magick >/dev/null; then
-  # Tamaño de la pantalla desde la salida de texto de niri ("Current mode: 1920x1080 @ ...").
-  # Se usa sed y no el JSON para no tener que embeber un parser dentro del script.
-  geom=$(niri msg outputs 2>/dev/null |
-    sed -n 's/^\s*Current mode:\s*\([0-9]\+x[0-9]\+\).*/\1/p' | head -1)
-  geom="${geom:-1920x1080}"
+  geom=$(get_screen_geom)
 
   # `-resize ^` escala hasta CUBRIR y `-extent` recorta centrado: mismo encuadre que
   # `--scaling fill` de swaylock, pero hecho una sola vez acá.

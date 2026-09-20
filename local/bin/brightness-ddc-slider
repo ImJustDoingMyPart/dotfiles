@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Adaptador entre el slider de brillo de swaync y `brightness-ddc`.
+#
+# Uso:  brightness-ddc-slider <0-100>
+#
+# ─── Por qué no se llama a brightness-ddc directo desde el cmd_setter ───
+#
+# Porque un slider no manda UN valor: mientras se arrastra manda decenas, uno por cada
+# pixel que se mueve la perilla. Y cada uno de esos es una escritura DDC/CI sobre i2c, que
+# tarda del orden de 100 ms. Sin nada en el medio, arrastrar la perilla encola cuarenta
+# escrituras que el monitor va a ir aplicando mucho después de que el mouse se soltó, y
+# mientras tanto el bus queda ocupado: durante las pruebas, dos llamadas a ddcutil
+# solapadas dejaron el comando colgado más de dos minutos.
+#
+# ─── Qué hace en su lugar: coalescing con flock ───
+#
+# El valor pedido se deja en un archivo y se compite por un lock:
+#
+#   · El primero que llega toma el lock y entra al bucle aplicador.
+#   · Los que llegan después NO esperan: pisan el archivo con su valor y se van enseguida.
+#   · El aplicador, cada vez que termina una escritura, vuelve a leer el archivo. Si el
+#     valor cambió mientras escribía, aplica el nuevo; si no, termina.
+#
+# Resultado: el monitor recibe tantas escrituras como el bus aguanta, nunca dos a la vez,
+# y el ÚLTIMO valor del arrastre siempre se aplica. Los intermedios se descartan, que es
+# justo lo que se quiere — nadie mira los valores intermedios de un arrastre.
+#
+# La relectura con `sleep` corta antes de salir cierra la ventana de carrera entre el
+# "no cambió nada" y soltar el lock: sin eso, un valor que llegue justo en ese hueco se
+# perdería y el brillo quedaría en el anteúltimo del arrastre.
+
+set -uo pipefail
+
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}"
+PEND="$STATE/brightness-pending"
+LOCK="$STATE/brightness-slider.lock"
+
+val=${1:-}
+# swaync manda el valor del GtkScale, que es un double: puede llegar "72" o "72.000000".
+val=${val%%.*}
+[[ $val =~ ^-?[0-9]+$ ]] || exit 0
+(( val < 0 ))   && val=0
+(( val > 100 )) && val=100
+
+mkdir -p "$STATE"
+printf '%s\n' "$val" > "$PEND"
+
+exec 9>"$LOCK"
+flock -n 9 || exit 0
+
+last=""
+while :; do
+  want=$(<"$PEND")
+  if [[ $want == "$last" ]]; then
+    sleep 0.08
+    want=$(<"$PEND")
+    [[ $want == "$last" ]] && break
+  fi
+  last=$want
+  brightness-ddc "$want" >/dev/null 2>&1
+done

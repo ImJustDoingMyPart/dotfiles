@@ -10,7 +10,7 @@
 #
 # El aviso lo hace `theme-reload` al final, que es el mismo bloque que usa theme-set.
 # ANTES ESTE SCRIPT NO AVISABA NADA, y por eso al cambiar de wallpaper el escritorio se
-# quedaba con el color viejo: mako, kitty, niri, walker y la barra leen el archivo del
+# quedaba con el color viejo: kitty, Hyprland, swaync y swayosd leen el archivo del
 # tema una sola vez. Con Waybar no se notaba porque tenía `reload_style_on_change` y
 # vigilaba también los imports; al migrar a Ironbar quedó a la vista.
 
@@ -70,6 +70,10 @@ matugen image "$WALLPAPER" --prefer "$PREFER" --quiet
 # parte cara de Papirus corre en el fondo adentro del propio icon-set — no agrega
 # lag acá. Ver ~/.local/bin/icon-set.
 icon-set --resync
+
+# El estilo de sombra (negra o glow) NO se resuelve acá: el template siempre genera el color
+# del glow, y `shadow-styles/black.lua` lo pisa porque hyprland.lua lo carga después del tema.
+# Ver ~/.local/bin/hypr-window-shadow.
 
 # theme-set hace su propio reinicio DESPUÉS de reapuntar los symlinks, que es el momento
 # correcto cuando además se cambia de tema. Si nos llamó él, no reiniciamos acá: sería un

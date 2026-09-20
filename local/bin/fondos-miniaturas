@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Genera las miniaturas del selector de fondos: recortadas, no achicadas.
+#
+# Uso:  fondos-miniaturas [carpeta]     (por defecto, la raíz de wallpaper-root-set)
+#       fondos-miniaturas --ruta <img>  imprime dónde va la miniatura de esa imagen
+#
+# ─── Para qué ───
+#
+# El selector de fondos (~/.local/bin/fondos-selector, GTK4) muestra cada fondo en una
+# celda cuadrada, recortado al centro: lo que no entra queda afuera, nada se deforma. GTK
+# podría recortar solo al dibujar (Gtk.Picture con ContentFit.COVER), pero decodificar
+# decenas de 4K al abrir la ventana es lento; con esto la ventana carga PNGs de 256 px.
+#
+# ─── El caché ───
+#
+# Espeja la ruta absoluta de la imagen: `$CACHE/<ruta original>.png`. Quien lista calcula
+# la ruta de la miniatura sin hashear nada, y si no existe usa la original (el selector
+# recorta igual; solo tarda más). Se regenera si la imagen es más nueva que su miniatura.
+#
+# vipsthumbnail y no magick: 108 ms para 12 fondos en paralelo contra 852 ms de magick
+# secuencial (medido). Decodifica achicando, sin cargar el 4K entero.
+#
+# Cuadradas por estética, no por límite: cuando el selector era de rofi sí era obligatorio
+# (el alto de las celdas se calculaba sin imagen, como size×size), pero en GTK el recorte
+# puede tener cualquier proporción. Si cambian ANCHO/ALTO, cambia también la carpeta del
+# caché que lee fondos-selector (la constante CACHE de ahí).
+
+set -uo pipefail
+
+ANCHO=256
+ALTO=256
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/fondos-selector/${ANCHO}x${ALTO}"
+
+if [[ ${1:-} == --ruta ]]; then
+    printf '%s%s.png\n' "$CACHE" "${2:?falta la imagen}"
+    exit 0
+fi
+
+root="${1:-$(wallpaper-root-set --actual)}"
+[[ -d $root ]] || { echo "fondos-miniaturas: no existe $root" >&2; exit 1; }
+
+# Mismas reglas que wallpaper-rotate y el Selector: si difieren, la rotación podría
+# poner un fondo que el selector no muestra.
+pendientes=()
+while IFS= read -r -d '' img; do
+    thumb="$CACHE$img.png"
+    [[ -e $thumb && ! $img -nt $thumb ]] || pendientes+=("$img")
+done < <(find "$root" -type f \
+            \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' -o -iname '*.gif' \) \
+            -not -path '*/.*/*' -not -path '*/Screenshots/*' -not -path '*/Fastfetch/*' \
+            -print0 2>/dev/null)
+
+[[ ${#pendientes[@]} -eq 0 ]] && exit 0
+
+# Orden de los argumentos de `sh -c`: $0 = caché, $1 = tamaño, y la imagen la agrega
+# xargs AL FINAL, así que llega como $2. (De un .gif, vips toma el primer cuadro.)
+printf '%s\0' "${pendientes[@]}" |
+    xargs -0 -P "$(nproc)" -n1 sh -c '
+        thumb="$0$2.png"
+        mkdir -p "${thumb%/*}"
+        vipsthumbnail "$2" --size "$1" --smartcrop=centre -o "$thumb" 2>/dev/null
+    ' "$CACHE" "${ANCHO}x${ALTO}" 2>/dev/null

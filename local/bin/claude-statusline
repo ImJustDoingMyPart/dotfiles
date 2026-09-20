@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""Status line de Claude Code: cuota de sesión (5 h), cuota semanal (7 d) y contexto.
+
+Claude Code invoca este script en cada refresco de la barra y le pasa por STDIN un JSON
+con el estado de la sesión. Lo que imprima por STDOUT es la barra (se admite ANSI).
+Se configura en ~/.claude/settings.json bajo "statusLine".
+
+De dónde salen los números (verificado el 2026-08-15 volcando el STDIN real de la
+versión 2.1.232, no de la doc):
+
+    rate_limits.five_hour.used_percentage   % consumido de la ventana de 5 h
+    rate_limits.five_hour.resets_at         epoch en SEGUNDOS del reset
+    rate_limits.seven_day.*                 idem para la ventana de 7 días
+    context_window.{current_usage,context_window_size,used_percentage}
+    cost.total_cost_usd, model.display_name, effort.level, workspace.current_dir
+
+Dos cosas que conviene tener presentes al leer la barra:
+
+1. Las cuotas NO vienen en tokens, solo en PORCENTAJE. La API no publica el tamaño
+   absoluto de la ventana de 5 h ni de la semanal (limit_dollars/used_dollars llegan en
+   null en esta cuenta), así que no hay forma honesta de mostrar "te quedan N tokens":
+   el único recuento en tokens de verdad es el del contexto, que es otra cosa.
+2. Los nombres son los de la API: la ventana corta es de 5 HORAS, no diaria, y se
+   renueva sola cada 5 h desde el primer mensaje; la larga es de 7 días corridos.
+
+Sin iconos de Nerd Font a propósito, aunque la terminal use JetBrainsMono Nerd Font: los
+glifos de carpeta y rama viven en el área de uso privado de Unicode y no sobreviven a
+cualquier editor (en la primera versión de este archivo se perdieron en la escritura y
+quedó un hueco en blanco antes del directorio). Con etiquetas de texto la barra además se
+lee igual por SSH o en una terminal sin la fuente parcheada.
+
+Los colores salen del tema activo (~/.claude/statusline-colors.conf, symlink que maneja
+`theme-set`; con el tema matugen lo regenera el wallpaper). Si el archivo no está, se usa
+la paleta de respaldo de abajo: la barra nunca deja de dibujarse por un tema faltante.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+
+COLORS_FILE = os.path.expanduser("~/.claude/statusline-colors.conf")
+
+# Respaldo si no hay tema (máquina nueva, symlink roto). Valores neutros, no de ningún
+# tema en particular.
+FALLBACK = {
+    "fg": "#cdd6f4", "dim": "#6c7086", "sep": "#45475a",
+    "model": "#cba6f7", "dir": "#89b4fa", "branch": "#f9e2af",
+    "ok": "#a6e3a1", "warn": "#f9e2af", "crit": "#f38ba8",
+    "empty": "#313244", "ctx": "#94e2d5", "cost": "#6c7086",
+}
+
+BAR_WIDTH = 10          # celdas de las barras de cuota
+CTX_BAR_WIDTH = 8       # celdas de la barra de contexto
+FULL, EMPTY = "█", "█"  # mismo glifo: lo que separa lleno de vacío es el color
+
+# Umbrales sobre el porcentaje que QUEDA.
+WARN_AT, CRIT_AT = 40, 15
+
+
+def load_colors():
+    colors = dict(FALLBACK)
+    try:
+        with open(COLORS_FILE, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                value = value.strip()
+                if value.startswith("#") and len(value) == 7:
+                    colors[key.strip()] = value
+    except OSError:
+        pass
+    return colors
+
+
+def paint(text, hexcolor, bold=False):
+    """Envuelve `text` en un color ANSI de 24 bits."""
+    r, g, b = (int(hexcolor[i:i + 2], 16) for i in (1, 3, 5))
+    return f"\033[{'1;' if bold else ''}38;2;{r};{g};{b}m{text}\033[0m"
+
+
+def level(remaining_pct):
+    """Nombre del color según cuánta cuota queda."""
+    if remaining_pct > WARN_AT:
+        return "ok"
+    return "warn" if remaining_pct > CRIT_AT else "crit"
+
+
+def bar(remaining_pct, colors, width=BAR_WIDTH, tone=None):
+    """Barra que se VACÍA a medida que se consume: lo lleno es lo que queda."""
+    filled = round(width * max(0, min(100, remaining_pct)) / 100)
+    # Mientras quede algo, que se vea algo: sin esto, el 1% dibuja una barra vacía
+    # idéntica a la del 0% y se pierde justo la distinción que más importa.
+    if filled == 0 and remaining_pct > 0:
+        filled = 1
+    tone = tone or level(remaining_pct)
+    return paint(FULL * filled, colors[tone]) + paint(EMPTY * (width - filled), colors["empty"])
+
+
+def human_reset(seconds_left):
+    """Cuánto falta para el reset, en la unidad más grande que sea informativa."""
+    if seconds_left <= 0:
+        return "ya"
+    minutes = int(seconds_left // 60)
+    if minutes < 60:
+        return f"{minutes}m"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}h{minutes:02d}"
+    days, hours = divmod(hours, 24)
+    return f"{days}d{hours}h" if hours else f"{days}d"
+
+
+def human_tokens(n):
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M".replace(".0M", "M")
+    if n >= 1_000:
+        return f"{n // 1000}k"
+    return str(n)
+
+
+def quota(label, window, now, colors):
+    """Un bloque de cuota: etiqueta, barra, % restante y cuándo se renueva."""
+    if not isinstance(window, dict) or window.get("used_percentage") is None:
+        return None
+    remaining = 100 - int(window["used_percentage"])
+    tone = level(remaining)
+    out = f"{paint(label, colors['dim'])} {bar(remaining, colors)} {paint(f'{remaining}%', colors[tone], bold=True)}"
+    resets_at = window.get("resets_at")
+    if resets_at:
+        out += " " + paint(f"en {human_reset(resets_at - now)}", colors["dim"])
+    return out
+
+
+def git_branch(cwd):
+    try:
+        result = subprocess.run(
+            ["git", "-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"],
+            capture_output=True, text=True, timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() or None
+
+
+def main():
+    try:
+        data = json.load(sys.stdin)
+    except (json.JSONDecodeError, ValueError):
+        return
+
+    now = int(time.time())
+    colors = load_colors()
+    sep = paint(" · ", colors["sep"])
+
+    # ─── Línea 1: quién soy y dónde estoy ───
+    first = [paint(f"✻ {data.get('model', {}).get('display_name', '?')}", colors["model"], bold=True)]
+
+    effort = (data.get("effort") or {}).get("level")
+    if effort:
+        first.append(paint(effort, colors["dim"]))
+    if data.get("fast_mode"):
+        first.append(paint("fast", colors["warn"]))
+
+    cwd = (data.get("workspace") or {}).get("current_dir") or data.get("cwd") or ""
+    if cwd:
+        first.append(paint(os.path.basename(cwd), colors["dir"]))
+        branch = git_branch(cwd)
+        if branch:
+            first.append(paint(f"({branch})", colors["branch"]))
+
+    ctx = data.get("context_window") or {}
+    if ctx.get("context_window_size"):
+        used = sum((ctx.get("current_usage") or {}).values())
+        size = ctx["context_window_size"]
+        pct_left = ctx.get("remaining_percentage", 100 - round(100 * used / size))
+        # La barra de contexto usa la MISMA escala ok/warn/crit que las cuotas, no un
+        # color propio: quedarse sin contexto también es algo que conviene ver venir, y
+        # con un color aparte la barra terminaba pintada de un salmón casi idéntico al
+        # de alarma (probado en pantalla el 2026-08-15). El recuento en tokens sí lleva
+        # su color, que es lo que distingue "cuánto entra" de "cuánta cuota queda".
+        first.append(
+            f"{paint('ctx', colors['dim'])} "
+            f"{bar(pct_left, colors, CTX_BAR_WIDTH)} "
+            f"{paint(f'{human_tokens(used)}/{human_tokens(size)}', colors['ctx'])}"
+        )
+
+    cost = (data.get("cost") or {}).get("total_cost_usd")
+    if cost:
+        first.append(paint(f"${cost:.2f}", colors["cost"]))
+
+    # ─── Línea 2: las dos cuotas ───
+    limits = data.get("rate_limits") or {}
+    second = [
+        block for block in (
+            quota("5h", limits.get("five_hour"), now, colors),
+            quota("7d", limits.get("seven_day"), now, colors),
+        ) if block
+    ]
+
+    print(sep.join(first))
+    if second:
+        # Separador más ancho que el de la línea 1: los dos bloques de cuota tienen que
+        # leerse como dos cosas, no como una fila de números corridos.
+        print(paint("   ·   ", colors["sep"]).join(second))
+    elif limits == {}:
+        # Pasa con clave de API propia y en versiones viejas: mejor decirlo que mostrar
+        # una barra llena y hacer creer que sobra cuota.
+        print(paint("cuotas: sin datos en esta sesión", colors["dim"]))
+
+
+if __name__ == "__main__":
+    main()

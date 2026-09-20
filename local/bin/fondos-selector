@@ -1,0 +1,681 @@
+#!/usr/bin/env python3
+"""Selector de fondos: un lienzo horizontal abajo de la pantalla.
+
+Uso:  fondos-selector                     (Mod+Y: se abre solo; Escape cierra)
+      fondos-selector --volver <estado>   (desde el menú: Escape reabre menu-sistema ahí)
+
+Si ya hay uno abierto, lanzarlo otra vez lo cierra (el toggle de Mod+Y).
+
+─── Por qué GTK4 y no rofi ───
+
+Se hizo primero en rofi y rofi no llega:
+  - La tira horizontal de rofi (`layout: horizontal`, el "barview") solo dibuja
+    elementos ENTEROS: si el siguiente no entra, corta (barview_draw, rofi 2.0.0). No
+    hay imagen asomando en el borde, y avanza de a páginas.
+  - La grilla con desplazamiento centrado (`-scroll-method 1`) centra la selección,
+    pero reparte el ancho en celdas enteras y se traba en los extremos de la lista.
+  - En modo script no se puede elegir la fila inicial (-selected-row lo pisa el
+    filtrado, -select es solo de dmenu).
+  - rofi no tiene sombras, y las layer rules de Hyprland tampoco: no hay glow posible.
+Una ventana GTK4 sobre layer-shell (gtk4-layer-shell) hace las cuatro cosas, y además
+tiene namespace propio, así que la animación es una layer rule fija.
+
+─── Por qué abre rápido (y qué lo hacía lento) ───
+
+Medido, con 50 fondos: la versión con Gtk.Application tardaba ~450 ms de lanzar a
+ventana en pantalla, y ~280 ms de eso eran `Gtk.Application.register()` — el arranque de
+la app única por D-Bus, NO la conexión al bus (0,4 ms) ni los portales (~37 ms). Una
+Gtk.Window sola llega a su primer frame en ~45 ms. Así que:
+  - La instancia única es un pidfile en $XDG_RUNTIME_DIR, resuelto ANTES de importar GTK.
+  - Los comandos externos (miniaturas, raíz, fondo actual, monitores) se lanzan antes de
+    importar GTK (~70 ms de GObject Introspection) y corren en paralelo con eso.
+  - Decodificar las 50 miniaturas tardaba ~54 ms: se cargan las cercanas a la selección
+    antes del primer frame y el resto en tandas, por debajo del repintado.
+
+─── Teclas ───
+
+  Izquierda/Derecha   mover (da la vuelta en los extremos)
+  Enter               aplicar, y la banda queda abierta
+  Escape              volver al menú si se entró desde ahí; si no, cerrar
+  letras              filtrar por nombre; BackSpace borra
+  click               aplicar ese fondo
+
+BackSpace NO vuelve: fue la tecla de atrás mientras el selector era de rofi (en la grilla
+las flechas eran de la navegación), y con buscador eso deja sin forma de borrar.
+"""
+
+# ─── Antes de importar GTK: toggle y comandos en paralelo ─────────────────────────
+#
+# Todo lo de esta sección usa solo la biblioteca estándar, para no pagar los ~70 ms de
+# importar GTK en el caso del toggle (que solo cierra la otra instancia y sale).
+
+import os  # noqa: E402
+import signal  # noqa: E402
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+
+PIDFILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "fondos-selector.pid")
+HYPRLAND = bool(os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"))
+
+
+def instancia_abierta():
+    """PID de otro selector vivo, o None.
+
+    Se confirma en /proc que el PID sea ESTE programa: un pidfile viejo puede apuntar a un
+    número que el sistema ya le dio a otro proceso, y a ese no hay que mandarle nada.
+    """
+    try:
+        with open(PIDFILE) as f:
+            pid = int(f.read().strip())
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            argv = f.read().split(b"\0")
+    except (OSError, ValueError):
+        return None
+    if pid == os.getpid():
+        return None
+    if any(os.path.basename(a.decode(errors="ignore")) == "fondos-selector" for a in argv):
+        return pid
+    return None
+
+
+_otro = instancia_abierta()
+if _otro:
+    # Mandarle SIGTERM a esta app desde afuera es seguro: atrapa la señal y cierra su
+    # ventana normalmente (ver main). Lo peligroso fue otra cosa — matar rofi desde
+    # ADENTRO de un script de rofi, bajo niri (ver [[Rofi y los menús]]).
+    try:
+        os.kill(_otro, signal.SIGTERM)
+        sys.exit(0)
+    except ProcessLookupError:
+        pass  # se murió en el medio: abrir uno nuevo
+
+with open(PIDFILE, "w") as f:
+    f.write(str(os.getpid()))
+
+
+def _lanzar(*args, capturar=True):
+    return subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE if capturar else subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+
+
+_miniaturas = _lanzar("fondos-miniaturas", capturar=False)
+_raiz = _lanzar("wallpaper-root-set", "--actual")
+_actual = _lanzar("wallpaper-set", "--actual")
+_monitores = _lanzar("hyprctl", "-j", "monitors") if HYPRLAND else None
+
+# gtk4-layer-shell tiene que cargarse ANTES que libwayland-client, y GI carga las
+# dependencias de GTK al importar. Por eso va antes de `import gi` (linking.md del
+# proyecto).
+from ctypes import CDLL  # noqa: E402
+
+CDLL("libgtk4-layer-shell.so")
+
+import json  # noqa: E402
+import locale  # noqa: E402
+import re  # noqa: E402
+import unicodedata  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
+gi.require_version("Gtk4LayerShell", "1.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+from gi.repository import Gtk4LayerShell as Capa  # noqa: E402
+
+# Señales Unix en el loop de GLib. `GLib.unix_signal_add` está deprecado desde GLib 2.8x
+# (PyGObject lo avisa por stderr en cada apertura); el nombre nuevo vive en GLibUnix. Se
+# deja el viejo de respaldo por si esta máquina alguna vez tiene un GLib sin GLibUnix.
+try:
+    gi.require_version("GLibUnix", "2.0")
+    from gi.repository import GLibUnix  # noqa: E402
+
+    agregar_senal = GLibUnix.signal_add
+except (ImportError, ValueError):
+    agregar_senal = GLib.unix_signal_add
+
+HOME = Path.home()
+CACHE = Path(os.environ.get("XDG_CACHE_HOME", HOME / ".cache")) / "fondos-selector" / "256x256"
+EXTENSIONES = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+NAMESPACE = "fondos-selector"  # la layer rule de hypr/cfg/rules.lua matchea esto
+
+ALTO_BANDA = 0.30    # fracción del alto del monitor
+SEPARACION_MIN = 20  # px entre celdas, como mínimo (la real sale del ancho del monitor)
+VECINAS = 3          # la celda número VECINAS a cada lado queda cortada por el borde
+CORTE = 0.5          # ...y se ve esta fracción de ella
+MARGEN_GLOW = 22     # aire arriba/abajo para que el glow no lo recorte el viewport
+ANILLO = 2           # px, como border_size de las ventanas
+DURACION_MS = 220    # desplazamiento de la tira
+CARGA_INICIAL = 2 * VECINAS + 3  # miniaturas decodificadas antes del primer frame
+TANDA = 6            # miniaturas por pasada ociosa, después
+
+
+# ─── Utilidades ─────────────────────────────────────────────────────────────
+
+
+def leer(proceso):
+    if proceso is None:
+        return ""
+    try:
+        return proceso.communicate(timeout=5)[0].strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def desprender(*args):
+    """Lanza sin esperar y sin compartir nada con este proceso (sesión y fds propios)."""
+    subprocess.Popen(
+        args,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def regla_rofi(prendida, demora=0.0):
+    """La regla que hace deslizar por abajo al MENÚ de rofi (hypr/cfg/rules.lua).
+
+    El menú la prende al saltar acá, para bajar al irse; este selector la apaga cuando
+    el menú ya se fue. Al volver, la prende para que el menú suba, y la apaga después.
+    """
+    if not HYPRLAND:
+        return
+    valor = "true" if prendida else "false"
+    lua = f"if _G.rofi_fondos_anim then _G.rofi_fondos_anim:set_enabled({valor}) end"
+    if demora:
+        desprender("sh", "-c", f"sleep {demora}; hyprctl eval '{lua}'")
+    else:
+        desprender("hyprctl", "eval", lua)
+
+
+def normalizar(texto):
+    sin_tildes = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
+    return sin_tildes.lower()
+
+
+def nombre_de(ruta):
+    return re.sub(r"[_-]+", " ", Path(ruta).stem)
+
+
+def fondos(raiz):
+    """Todo lo que cuelga de la raíz, plano y recursivo.
+
+    Mismas reglas que wallpaper-rotate (`find -type f` con esas extensiones y
+    `-not -path '*/.*/*' -not -path '*/Screenshots/*' -not -path '*/Fastfetch/*'`): si las
+    listas difirieran, la rotación podría poner un fondo que el selector no muestra.
+    """
+    lista = []
+    for dirpath, _dirs, archivos in os.walk(raiz):
+        partes = Path(dirpath).parts
+        if any(p.startswith(".") for p in partes[1:]):
+            continue
+        if "Screenshots" in partes or "Fastfetch" in partes:
+            continue
+        for a in archivos:
+            if a.lower().endswith(EXTENSIONES):
+                lista.append(os.path.join(dirpath, a))
+    locale.setlocale(locale.LC_COLLATE, "")
+    return sorted(lista, key=locale.strxfrm)
+
+
+def colores():
+    """Paleta de rofi (matugen) para acento y anillo; fondo de la banda, el de Waybar."""
+    c = {
+        "foreground": "#f0dedd",
+        "foreground-alt": "#d7c1c0",
+        "accent": "#ffb3b0",
+        "accent-alt": "#e3c28c",
+        "border": "#534342",
+    }
+    try:
+        texto = (HOME / ".config/rofi/colors.rasi").read_text()
+        for clave, valor in re.findall(r"^\s*([a-z-]+):\s*(#[0-9a-fA-F]{6,8});", texto, re.M):
+            c[clave] = valor
+    except OSError:
+        pass
+    c["banda"] = "rgba(26, 17, 17, 0.85)"
+    try:
+        texto = (HOME / ".config/waybar/theme.css").read_text()
+        m = re.search(r"^@define-color background (.+?);", texto, re.M)
+        if m:
+            c["banda"] = m.group(1)
+    except OSError:
+        pass
+    return c
+
+
+def monitor_enfocado(display, json_monitores):
+    nombre = None
+    try:
+        for m in json.loads(json_monitores or "[]"):
+            if m.get("focused"):
+                nombre = m.get("name")
+    except ValueError:
+        pass
+    monitores = display.get_monitors()
+    for i in range(monitores.get_n_items()):
+        mon = monitores.get_item(i)
+        if nombre and mon.get_connector() == nombre:
+            return mon
+    return monitores.get_item(0)
+
+
+# ─── La ventana ─────────────────────────────────────────────────────────────
+
+
+class Selector:
+    def __init__(self, loop, volver, raiz, actual, json_monitores):
+        self.loop = loop
+        self.volver = volver
+        self.raiz = raiz or str(HOME / "Imágenes")
+        self.actual = actual
+        self.todos = fondos(self.raiz)
+        self.visibles = list(self.todos)
+        self.filtro = ""
+        self.sel = 0
+        self.celdas = []
+        self.fotos = []
+        self.generacion = 0
+        self.anim = None
+        self.tick_id = 0
+
+        display = Gdk.Display.get_default()
+        mon = monitor_enfocado(display, json_monitores)
+        geo = mon.get_geometry()
+        self.ancho = geo.width
+        alto = round(geo.height * ALTO_BANDA)
+
+        # Cabecera 14 + ~20 de texto + 8 de separación; lo demás es la tira, con aire
+        # arriba y abajo para el glow.
+        self.lado = max(120, alto - 42 - 2 * MARGEN_GLOW)
+        # La celda mide la foto MÁS el anillo de los dos lados. El paso y el margen salen
+        # de esa medida, no de la foto: con 4 px de diferencia por celda, en la número 43
+        # el centrado quedaba corrido 172 px.
+        self.celda = self.lado + 2 * ANILLO
+        # El paso NO es fijo: sale del ancho del monitor para que la celda número VECINAS a
+        # cada lado de la seleccionada quede cortada por el borde, y se vea que la tira
+        # sigue. Con un paso fijo, en 1920 px entraban siete celdas justas (la primera
+        # empezaba en x=29 y la última terminaba en 1891) y el lienzo parecía una fila
+        # cerrada. Cuenta: el borde izquierdo de esa celda tiene que caer CORTE·celda antes
+        # del borde de la pantalla, o sea  ancho/2 − VECINAS·paso + celda/2 = CORTE·celda.
+        paso = (self.ancho / 2 + self.celda / 2 - CORTE * self.celda) / VECINAS
+        self.separacion = max(SEPARACION_MIN, round(paso) - self.celda)
+        self.paso = self.celda + self.separacion
+
+        self._estilo(display)
+
+        win = Gtk.Window()
+        win.add_css_class("fondos")
+        Capa.init_for_window(win)
+        Capa.set_namespace(win, NAMESPACE)
+        Capa.set_layer(win, Capa.Layer.OVERLAY)
+        Capa.set_monitor(win, mon)
+        for borde in (Capa.Edge.BOTTOM, Capa.Edge.LEFT, Capa.Edge.RIGHT):
+            Capa.set_anchor(win, borde, True)
+        Capa.set_exclusive_zone(win, -1)
+        Capa.set_keyboard_mode(win, Capa.KeyboardMode.EXCLUSIVE)
+        # Sin Gtk.Application no hay nadie que termine el loop al cerrar la ventana. Se
+        # engancha de `close-request`, que `close()` emite siempre, y NO de `destroy`:
+        # enganchado de destroy, la capa desaparecía pero el proceso seguía vivo, y el
+        # pidfile hacía que la siguiente invocación lo tomara como toggle y no abriera nada
+        # (probado). Se devuelve False para que GTK igual destruya la ventana, y el quit va
+        # por idle para que esa destrucción ocurra antes; la animación de salida no depende
+        # del proceso, Hyprland toma una instantánea de la capa al desmapearla.
+        win.connect("close-request", self._al_cerrar)
+        self.win = win
+
+        banda = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        banda.add_css_class("banda")
+        banda.set_size_request(-1, alto)
+        win.set_child(banda)
+
+        cabecera = Gtk.Box(spacing=10)
+        cabecera.add_css_class("cabecera")
+        prompt = Gtk.Label(label=f"󰸉  {Path(self.raiz).name.capitalize()}")
+        prompt.add_css_class("prompt")
+        self.etiqueta_filtro = Gtk.Label(label="Buscar…", xalign=0)
+        self.etiqueta_filtro.add_css_class("filtro")
+        self.etiqueta_filtro.add_css_class("vacio")
+        cabecera.append(prompt)
+        cabecera.append(self.etiqueta_filtro)
+        banda.append(cabecera)
+
+        self.scroller = Gtk.ScrolledWindow(vexpand=True)
+        # EXTERNAL: desplazable por código, sin barra. La rueda la maneja este script.
+        self.scroller.set_policy(Gtk.PolicyType.EXTERNAL, Gtk.PolicyType.NEVER)
+        banda.append(self.scroller)
+
+        # Márgenes de medio ancho de pantalla a los costados: así la PRIMERA y la ÚLTIMA
+        # celda también pueden quedar centradas, y el valor de desplazamiento que centra
+        # la celda i es exactamente i * paso.
+        self.tira = Gtk.Box(spacing=self.separacion, valign=Gtk.Align.CENTER)
+        costado = self.ancho // 2 - self.celda // 2
+        self.tira.set_margin_start(costado)
+        self.tira.set_margin_end(costado)
+        self.tira.set_margin_top(MARGEN_GLOW)
+        self.tira.set_margin_bottom(MARGEN_GLOW)
+        self.scroller.set_child(self.tira)
+
+        teclas = Gtk.EventControllerKey()
+        teclas.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        teclas.connect("key-pressed", self._tecla)
+        win.add_controller(teclas)
+
+        rueda = Gtk.EventControllerScroll.new(
+            Gtk.EventControllerScrollFlags.BOTH_AXES | Gtk.EventControllerScrollFlags.DISCRETE
+        )
+        rueda.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        rueda.connect("scroll", self._rueda)
+        self.scroller.add_controller(rueda)
+
+        self._poblar(self._indice_de(self.actual))
+
+        # Centrar el fondo actual sin animar, apenas la tira tenga su tamaño real.
+        self._centrar_cuando_se_pueda()
+
+        win.present()
+
+        # Si se llegó desde el menú, el menú prendió la regla para bajar al irse; para
+        # cuando esto se ve, ya se fue.
+        regla_rofi(False, demora=0.6)
+
+    # ── estilo ──
+
+    def _estilo(self, display):
+        c = colores()
+        css = f"""
+        window.fondos {{ background: transparent; }}
+        .banda {{ background-color: {c['banda']}; padding-top: 14px; }}
+        .cabecera {{ padding: 0 24px; font-family: "JetBrainsMono Nerd Font"; font-size: 14px; }}
+        .cabecera .prompt {{ color: {c['accent']}; }}
+        .cabecera .filtro {{ color: {c['foreground']}; }}
+        .cabecera .filtro.vacio {{ color: {c['foreground-alt']}; }}
+        scrolledwindow, viewport {{ background: none; }}
+
+        /* El anillo es el fondo de la celda asomando por su padding: calca el borde de
+           las ventanas (border_size = 2, primary -> tertiary a 45°). */
+        .celda {{
+            padding: {ANILLO}px;
+            border-radius: 6px;
+            background: none;
+            transition: box-shadow 150ms ease-out;
+        }}
+        .celda picture {{ border-radius: 4px; }}
+        .celda.actual {{ background-color: {c['border']}; }}
+
+        /* El glow de "Sombras de ventana" (hypr/cfg/shadow-styles/colorful-glow.lua):
+           range 24 y el color que calcula el template de matugen, primary al 50%. */
+        .celda.sel {{
+            background-image: linear-gradient(45deg, {c['accent']}, {c['accent-alt']});
+            box-shadow: 0 0 24px 2px alpha({c['accent']}, 0.5);
+        }}
+        """
+        proveedor = Gtk.CssProvider()
+        proveedor.load_from_string(css)
+        Gtk.StyleContext.add_provider_for_display(
+            display, proveedor, Gtk.STYLE_PROVIDER_PRIORITY_USER
+        )
+
+    # ── contenido ──
+
+    def _indice_de(self, ruta):
+        try:
+            return self.visibles.index(ruta)
+        except ValueError:
+            return 0
+
+    def _poblar(self, seleccion):
+        hijo = self.tira.get_first_child()
+        while hijo:
+            siguiente = hijo.get_next_sibling()
+            self.tira.remove(hijo)
+            hijo = siguiente
+        self.celdas = []
+        self.fotos = []
+        # Invalida las tandas de carga de una población anterior (por ejemplo, si se
+        # filtra mientras todavía se estaban cargando miniaturas).
+        self.generacion += 1
+
+        for i, ruta in enumerate(self.visibles):
+            # La celda nace con la foto vacía: decodificar las miniaturas es lo caro, y se
+            # hace después, empezando por las que se ven (ver _cargar_cercanas).
+            foto = Gtk.Picture()
+            foto.set_content_fit(Gtk.ContentFit.COVER)
+            foto.set_can_shrink(True)
+            foto.set_hexpand(True)
+            foto.set_vexpand(True)
+            foto.set_overflow(Gtk.Overflow.HIDDEN)
+
+            celda = Gtk.Box()
+            celda.add_css_class("celda")
+            celda.set_size_request(self.celda, self.celda)
+            celda.append(foto)
+            if ruta == self.actual:
+                celda.add_css_class("actual")
+
+            click = Gtk.GestureClick()
+            click.connect("released", self._click, i)
+            celda.add_controller(click)
+
+            self.tira.append(celda)
+            self.celdas.append(celda)
+            self.fotos.append(foto)
+
+        self.sel = min(max(seleccion, 0), max(len(self.celdas) - 1, 0))
+        if self.celdas:
+            self.celdas[self.sel].add_css_class("sel")
+        self._cargar_cercanas()
+
+    def _cargar(self, i):
+        ruta = self.visibles[i]
+        # La miniatura espeja la ruta absoluta de la imagen (ver fondos-miniaturas) y ya
+        # viene recortada. Si todavía no existe, la original sirve igual: COVER recorta al
+        # dibujar; solo cuesta más cargarla.
+        archivo = f"{CACHE}{ruta}.png"
+        if not os.path.exists(archivo):
+            archivo = ruta
+        self.fotos[i].set_filename(archivo)
+
+    def _cargar_cercanas(self):
+        """Decodifica ya las miniaturas que se ven, y el resto en tandas.
+
+        Las tandas van por `idle_add`, cuya prioridad está por debajo del repintado: el
+        primer frame y la animación de entrada no las esperan. Se ordenan por distancia a
+        la selección, así lo próximo que se ve al moverse es lo primero que se carga.
+        """
+        n = len(self.fotos)
+        orden = sorted(range(n), key=lambda i: abs(i - self.sel))
+        for i in orden[:CARGA_INICIAL]:
+            self._cargar(i)
+        pendientes = orden[CARGA_INICIAL:]
+        pendientes.reverse()  # pop() saca del final: el más cercano queda último en la lista
+        if pendientes:
+            GLib.idle_add(self._cargar_tanda, self.generacion, pendientes)
+
+    def _cargar_tanda(self, generacion, pendientes):
+        if generacion != self.generacion:
+            return GLib.SOURCE_REMOVE
+        for _ in range(TANDA):
+            if not pendientes:
+                break
+            self._cargar(pendientes.pop())
+        return GLib.SOURCE_CONTINUE if pendientes else GLib.SOURCE_REMOVE
+
+    def _centrar_cuando_se_pueda(self):
+        """Fija el desplazamiento de la selección en cuanto el ajuste lo admite.
+
+        No alcanza con esperar el primer `notify::upper`: llega con la tira a medio medir,
+        `set_value` recorta el valor a ese límite provisorio y la tira queda en 0 (probado:
+        abría con la celda 0 al centro y la seleccionada fuera de pantalla). Se reintenta
+        en cada frame hasta que el viewport tiene ancho y el límite alcanza el destino.
+        """
+        def intento(_widget, _reloj):
+            adj = self.scroller.get_hadjustment()
+            destino = self.sel * self.paso
+            pagina = adj.get_page_size()
+            if pagina <= 0 or adj.get_upper() - pagina < destino:
+                return GLib.SOURCE_CONTINUE
+            adj.set_value(destino)
+            return GLib.SOURCE_REMOVE
+
+        self.scroller.add_tick_callback(intento)
+
+    # ── movimiento ──
+
+    def _seleccionar(self, i, animar=True):
+        if not self.celdas:
+            return
+        i %= len(self.celdas)  # da la vuelta en los extremos
+        self.celdas[self.sel].remove_css_class("sel")
+        self.sel = i
+        self.celdas[i].add_css_class("sel")
+        destino = i * self.paso
+        if animar:
+            self._animar_a(destino)
+        else:
+            self.scroller.get_hadjustment().set_value(destino)
+
+    def _animar_a(self, destino):
+        adj = self.scroller.get_hadjustment()
+        self.anim = [adj.get_value(), destino, None]
+        if not self.tick_id:
+            self.tick_id = self.scroller.add_tick_callback(self._tick)
+
+    def _tick(self, _widget, reloj):
+        desde, hasta, t0 = self.anim
+        ahora = reloj.get_frame_time()  # microsegundos
+        if t0 is None:
+            self.anim[2] = t0 = ahora
+        p = min(1.0, (ahora - t0) / (DURACION_MS * 1000))
+        curva = 1 - (1 - p) ** 3  # ease-out cúbica
+        self.scroller.get_hadjustment().set_value(desde + (hasta - desde) * curva)
+        if p >= 1.0:
+            self.tick_id = 0
+            return GLib.SOURCE_REMOVE
+        return GLib.SOURCE_CONTINUE
+
+    # ── acciones ──
+
+    def aplicar(self):
+        if not self.celdas:
+            return
+        ruta = self.visibles[self.sel]
+        # Desprendido: wallpaper-set tarda ~5 s (matugen y theme-reload incluidos) y la banda
+        # tiene que seguir respondiendo. Las corridas encimadas las resuelve wallpaper-set:
+        # el fondo visible no hace cola detrás del tema del anterior, y gana el último.
+        desprender("systemd-cat", "-t", "wallpaper-set", "wallpaper-set", ruta)
+        for celda in self.celdas:
+            celda.remove_css_class("actual")
+        self.celdas[self.sel].add_css_class("actual")
+        self.actual = ruta
+
+    def volver_o_cerrar(self):
+        if self.volver:
+            regla_rofi(True)
+            desprender("systemd-cat", "-t", "fondos-selector", "menu-sistema", self.volver)
+            regla_rofi(False, demora=0.6)
+        self.cerrar()
+
+    def cerrar(self):
+        self.win.close()
+
+    def _al_cerrar(self, _win):
+        GLib.idle_add(self.loop.quit)
+        return False
+
+    def _filtrar(self):
+        self.etiqueta_filtro.set_label(self.filtro or "Buscar…")
+        if self.filtro:
+            self.etiqueta_filtro.remove_css_class("vacio")
+        else:
+            self.etiqueta_filtro.add_css_class("vacio")
+        clave = normalizar(self.filtro)
+        anterior = self.visibles[self.sel] if self.celdas else None
+        self.visibles = [r for r in self.todos if clave in normalizar(nombre_de(r))]
+        self._poblar(self._indice_de(anterior) if anterior in self.visibles else 0)
+        self._centrar_cuando_se_pueda()
+
+    # ── entrada ──
+
+    def _tecla(self, _ctrl, keyval, _keycode, estado):
+        nombre = Gdk.keyval_name(keyval) or ""
+        control = bool(estado & Gdk.ModifierType.CONTROL_MASK)
+
+        if nombre == "Escape":
+            self.volver_o_cerrar()
+        elif nombre in ("Left", "KP_Left") or (control and nombre == "b"):
+            self._seleccionar(self.sel - 1)
+        elif nombre in ("Right", "KP_Right") or (control and nombre == "f"):
+            self._seleccionar(self.sel + 1)
+        elif nombre == "Home":
+            self._seleccionar(0)
+        elif nombre == "End":
+            self._seleccionar(len(self.celdas) - 1)
+        elif nombre in ("Return", "KP_Enter"):
+            self.aplicar()
+        elif nombre == "BackSpace":
+            if self.filtro:
+                self.filtro = self.filtro[:-1]
+                self._filtrar()
+        else:
+            unicode = Gdk.keyval_to_unicode(keyval)
+            if unicode and not control and chr(unicode).isprintable():
+                self.filtro += chr(unicode)
+                self._filtrar()
+            else:
+                return False
+        return True
+
+    def _rueda(self, _ctrl, dx, dy):
+        paso = dy if abs(dy) >= abs(dx) else dx
+        if paso:
+            self._seleccionar(self.sel + (1 if paso > 0 else -1))
+        return True
+
+    def _click(self, _gesto, _n, _x, _y, i):
+        self._seleccionar(i)
+        self.aplicar()
+
+
+# ─── Arranque ───────────────────────────────────────────────────────────────
+
+
+def main():
+    args = sys.argv[1:]
+    volver = args[args.index("--volver") + 1] if "--volver" in args[:-1] else ""
+    try:
+        # Las miniaturas tienen que existir antes de armar las celdas. Arrancó antes de
+        # importar GTK, así que casi siempre ya terminó; con caché son milisegundos.
+        _miniaturas.wait()
+        loop = GLib.MainLoop()
+        selector = Selector(loop, volver, leer(_raiz), leer(_actual), leer(_monitores))
+
+        def al_sigterm():
+            selector.cerrar()
+            # CONTINUE y no REMOVE: el manejador tiene que quedar instalado. Si se
+            # desinstala después de la primera señal, una segunda (otro toggle mientras
+            # esta ventana se cierra) cae en la acción por defecto, mata el proceso sin
+            # pasar por el `finally` y deja el pidfile colgado (pasó).
+            return GLib.SOURCE_CONTINUE
+
+        # El toggle: otra invocación manda SIGTERM. Se cierra la ventana como con Escape
+        # (sin volver al menú), así Hyprland anima la salida igual.
+        agregar_senal(GLib.PRIORITY_DEFAULT, signal.SIGTERM, al_sigterm)
+        loop.run()
+    finally:
+        try:
+            with open(PIDFILE) as f:
+                if f.read().strip() == str(os.getpid()):
+                    os.remove(PIDFILE)
+        except OSError:
+            pass
+
+
+if __name__ == "__main__":
+    main()

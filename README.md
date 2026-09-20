@@ -1,18 +1,23 @@
 # dotfiles
 
-Setup de escritorio para **[Niri](https://github.com/YaLTeR/niri)** (compositor tiling
-scrollable en Wayland), armado sobre CachyOS pero pensado para cualquier distro de
-**familia Arch** (ver más abajo qué tan atado está a eso, que es poco). Terminal minimalista
-(Kitty + Fish/Zsh + Starship), barra ~~Ironbar~~Waybar, launcher Walker + Elephant,
-notificaciones Mako, pantalla de bloqueo Hyprlock/Hypridle, y todo el theming generado
-dinámicamente desde el wallpaper con [matugen](https://github.com/InioX/matugen) (Material You).
+Setup de escritorio Wayland para **[Hyprland](https://hypr.land)** (versión 0.56 modular
+configurada íntegramente en **Lua**), armado sobre CachyOS pero pensado para cualquier distro
+de la **familia Arch** (ver más abajo qué tan atado está a eso).
+
+Diseñado con dos prioridades: **fluidez absoluta** (atajos inmediatos sin forks ni procesos
+pesados, juegos aislados en su propio workspace con direct scanout) y **cohesión visual
+estricta** (geometría compartida, degradé bicolor característico `primary → tertiary` a 45°
+en superficies flotantes, y un sistema híbrido de temas que sincroniza cada programa desde el
+wallpaper con [matugen](https://github.com/InioX/matugen) o permite alternar a temas estáticos
+curados como Gruvbox).
 
 ## Demo
 
 [Ver el video](https://github.com/ImJustDoingMyPart/dotfiles/releases/download/demo/dotfiles-demo-matugen.mp4) <!-- TODO: reemplazar por el embed real (user-attachments) -->
 
-Terminal, Ironbar + Walker, Yazi, una notificación de Mako, Obsidian, Nautilus, Brave y la
-pantalla de bloqueo (Hyprlock), todos con la misma paleta generada por matugen.
+Terminal (Kitty), Waybar, Rofi (`system-index` + calculadora + atajos), selector de fondos en
+GTK4 layer-shell (`fondos-selector`), centro de control SwayNC, SwayOSD, Yazi, Nautilus, Brave
+y pantalla de bloqueo (Hyprlock), todos con la misma paleta generada dinámicamente por matugen.
 
 ## Instalación
 
@@ -23,97 +28,124 @@ cd dotfiles
 ./install.sh --copy   # o copia en vez de symlinkear, si preferís no depender del repo
 ```
 
-Lo que ya exista en destino se respalda (con timestamp) antes de reemplazarlo, así que no pisa
-nada en silencio. También adapta automáticamente las rutas absolutas (ver más abajo) a tu
-usuario real. Instalá las dependencias antes (lista más abajo) — el script no instala paquetes.
+Lo que ya exista en destino se respalda automáticamente (con timestamp en `~/dotfiles-backup-*`)
+antes de reemplazarlo, así que nunca pisa nada en silencio. También adapta las rutas absolutas a
+tu `$HOME` real si tu usuario no es `anon`.
+
+Instalá las dependencias antes (lista más abajo) — el script no instala paquetes de sistema.
 
 ## Estructura
 
 ```
 config/     → mapea a ~/.config/<mismo nombre>
-local/bin/  → mapea a ~/.local/bin (scripts propios, deben quedar ejecutables)
-zshenv      → mapea a ~/.zshenv (zsh lee esa ruta fija siempre; ver "Piezas principales")
-install.sh  → instalador (ver arriba)
+local/bin/  → mapea a ~/.local/bin (scripts propios ejecutables del entorno)
+zshenv      → mapea a ~/.zshenv (zsh lee esa ruta fija siempre)
+install.sh  → instalador interactivo o por flags
 ```
 
 ## Piezas principales
 
-| Área | Config |
-|---|---|
-| Compositor | `config/niri/` (`config.kdl` + `cfg/*.kdl` + `animations/`) |
-| Barra | `config/waybar/` o `config/ironbar/` (vuelta a Waybar activamente desde 2026-08-25; Ironbar queda instalado pero de referencia) |
-| Launcher | `config/walker/` + `config/elephant/` (menús/providers en Lua y TOML) |
-| Notificaciones | `config/mako/` |
-| Terminal | `config/kitty/`, `config/fish/` y/o `config/zsh/`, `config/starship.toml` |
-| Herramientas CLI con tema propio | `config/bat/`, `config/yazi/` |
-| Bloqueo de pantalla / idle | `config/hypr/` (`hyprlock.conf` + `hypridle.conf` — sí, con niri; hyprlock/hypridle son standalone) |
-| Banner de shell | `config/fastfetch/` (`config.jsonc` + `ascii_art.txt`, el logo de la izquierda) |
-| Theming (Material You) | `config/matugen/` — `config.toml` define qué template genera qué archivo |
+| Área | Herramienta | Config |
+|---|---|---|
+| **Compositor** | Hyprland 0.56.2 | `config/hypr/` (`hyprland.lua`, `cfg/*.lua`, `animations/*.lua`) |
+| **Sesión / Entorno** | uwsm | `config/uwsm/env` (variables de entorno de sesión gráfica y Qt) |
+| **Barra de estado** | Waybar | `config/waybar/` (`config.jsonc`, `style.css` y módulos propios) |
+| **Launcher y Menús** | Rofi (Wayland) | `config/rofi/` (`config.rasi`, `layout.rasi`, `scripts/system-index`) |
+| **Notificaciones** | SwayNC | `config/swaync/` (`config.json`, `style.css` con widgets de control) |
+| **OSD (vol/brillo)** | SwayOSD | `config/swayosd/` (`style.css` coordinado con los toasts de SwayNC) |
+| **Bloqueo / Idle** | Hyprlock + Hypridle | `config/hypr/hyprlock.conf`, `config/hypr/hypridle.conf` |
+| **Motor de temas** | Matugen + switcher | `config/matugen/` y `config/themes/` (`theme-set`, `theme-reload`) |
+| **Terminal** | Kitty | `config/kitty/` (`kitty.conf`) |
+| **Shell** | Fish / Zsh + Starship | `config/fish/`, `config/zsh/`, `config/starship.toml` |
+| **Herramientas CLI** | Yazi, Bat, Btop, Micro | `config/yazi/`, `config/bat/`, `config/btop/`, `config/micro/` |
+| **Banner de shell** | Fastfetch | `config/fastfetch/` (`config.jsonc` + `ascii_art.txt`) |
+| **Gaming / Overlay** | MangoHud | `config/MangoHud/` (`MangoHud.conf`) |
+| **Hardware RGB** | OpenRGB | `config/OpenRGB/` (perfiles `synthwave.json`) |
+| **Apariencia Qt/GTK** | qt5ct, qt6ct, GTK 3/4 | `config/qt5ct/`, `config/qt6ct/`, `config/gtk-3.0/`, `config/gtk-4.0/` |
 
-`fish/` y `zsh/` son equivalentes e independientes — instalá el que uses, el otro no molesta si
-queda ahí sin usarse (ninguno se auto-invoca).
+`fish/` y `zsh/` son equivalentes e independientes: usá el que prefieras como login shell.
 
-Kitty es la terminal en uso (hubo una etapa con Alacritty en paralelo; se descartó porque el
-soporte de imágenes en las previews de Yazi/`chafa` rendía peor que en Kitty). No queda config
-de Alacritty en este repo.
+## Arquitectura de Hyprland (Lua modular)
 
-## Animaciones de niri (elegirlas desde Walker)
+Desde Hyprland 0.56, la configuración se expresa en Lua (`hyprland.lua`), ganando lógica nativa
+sin invocar subprocesos:
 
-`config/niri/animations/` tiene varios packs (`.kdl`) intercambiables — no hay que editar
-`config.kdl` a mano para cambiar de animación. El menú **Animations** de Walker
-(`config/elephant/menus/animations.lua`) lista los packs de esa carpeta y aplica el elegido
-con `local/bin/niri-animation`, que reescribe el `include` de `config/niri/animations.kdl` y
-lo valida antes de dejarlo. `config/niri/cfg/animation.kdl` es el pack base (fallback) que se
-incluye después.
+- **`run_or_cycle` en Lua puro**: Los atajos de aplicación (`Mod+Return` terminal, `Mod+B` navegador,
+  `Mod+E` yazi, `Mod+Shift+E` Nautilus, `Mod+Z` Vesktop, `Mod+S` Steam) enfocan la ventana si ya existe
+  —ciclando ordenadamente entre sus instancias— o la lanzan si no. Al estar implementado como función
+  interna en `cfg/binds.lua`, el cambio de foco ocurre con **latencia cero** (sin forks, sin `hyprctl`
+  ni pipes de `jq`).
+- **Workspace de juegos (`Mod+0`)**: `cfg/rules.lua` envía automáticamente los juegos al workspace 10,
+  permitiendo volver al escritorio y regresar al juego con `Mod+0` instantáneamente sin romper la
+  pantalla completa ni perder direct scanout.
+- **18 Presets de Animación intercambiables**: `config/hypr/animations/` incluye 18 curvas y ritmos
+  optimizados (`vertical`, `classic`, `fast`, `gnome`, `macos`, `moving`, etc.). Se alternan al vuelo
+  desde Rofi o con `hypr-animation <preset>`.
+- **Estilos de Sombra**: `hypr-window-shadow` conmuta entre sombra negra neutra (`black`) y resplandor
+  teñido por el acento del tema (`colorful-glow`).
 
-Los packs no son míos: son de
-[niri-animation-collection](https://github.com/jgarza9788/niri-animation-collection) (MIT),
-de Justin Garza y colaboradores — cada `.kdl` trae su autoría en el propio header del archivo.
+## Rofi y el índice del sistema (`Mod+Comma`)
 
-## Theming con matugen
+Rofi reemplaza launchres pesados y centraliza la interacción modal:
+- **`Mod+Space`**: Lanzador de aplicaciones (`drun`).
+- **`Mod+C`**: Calculadora interactiva instantánea vía `rofi-calc` (con `libqalculate`).
+- **`Mod+V`**: Historial de portapapeles con `cliphist`.
+- **`Mod+Comma`**: Menú integral del sistema (`system-index`):
+  - Selector de fondos con miniaturas visuales (`fondos-selector`, ventana nativa en GTK4 layer-shell).
+  - Selector de temas (`theme-set`).
+  - Selector de animaciones (`hypr-animation`).
+  - Salidas de audio y perfiles PipeWire.
+  - Red WiFi y dispositivos Bluetooth.
+  - Cheatsheet de atajos de teclado leídos en vivo de Hyprland.
+- **`Mod+Escape`**: Menú de apagado y sesión (`rofi-power-menu`).
 
-El color de cada app (barra, terminal, `bat`, `yazi`, GTK, Qt, notificaciones, etc.) **no
-está hardcodeado**: `matugen/config.toml` define, por cada app, un `input_path` (plantilla en
-`matugen/templates/`) y un `output_path` (el archivo real que la app lee). Al cambiar de
-wallpaper, matugen recompila todas las plantillas y cada app queda con la misma paleta
-derivada de esa imagen.
+## Motor de temas híbrido (Material You + Curados)
 
-Ese `output_path` (`~/.config/themes/matugen/...`) es contenido **generado**, así que no
-viene incluido en este repo — se recrea corriendo matugen con esta config. Varias apps
-(`waybar`, `ironbar`, `mako`, `bat`, `yazi`, `kitty`, `gtk`, `qt5ct`/`qt6ct`,
-`swayosd`, `btop`) apuntan a ese archivo generado mediante un symlink en su propia carpeta de
-config — symlink que tampoco viene en el repo por lo mismo (apunta a algo que todavía no
-existe hasta que corras matugen la primera vez).
+El color no está hardcodeado en ningún componente:
+1. **Tema generado (`matugen`)**: Al cambiar el fondo (`wallpaper-set <imagen>`), matugen extrae
+   la paleta Material You tonal y renderiza 20 plantillas (`config/matugen/templates/`) hacia
+   `~/.config/themes/matugen/`.
+2. **Temas fijos curados**: Soporte de temas estáticos (como `gruvbox-dark-medium` en
+   `config/themes/gruvbox-dark-medium/`).
+3. **Switcher (`theme-set <tema>`)**: Reapunta symlinks hacia el tema elegido sin que las apps
+   tengan que conocer la existencia del switcher.
+4. **Recarga en caliente (`theme-reload`)**: Notifica a los programas en ejecución de forma
+   idempotente (`swaync-client --reload-css`, `pkill -SIGUSR1 kitty`, `hyprctl reload config-only`,
+   `systemctl --user try-restart swayosd.service`, `starship-palette-apply`, inyección en Obsidian y
+   Antigravity IDE).
 
 ## Qué es específico de Arch/CachyOS
 
-La mayor parte de este repo es config de proyectos upstream (niri, waybar/ironbar, walker,
-mako, matugen, kitty, starship, bat, yazi, btop, MangoHud, GTK, Qt, swayosd, micro):
-no le importa la distro, solo que el paquete esté instalado. Los puntos que sí asumen
-Arch/CachyOS son estos cuatro:
+La gran mayoría de los archivos son estándares de Wayland y proyectos upstream. Los puntos
+particulares para familia Arch son:
 
-| Dónde | Qué hace | Alcance |
+| Dónde | Qué hace | Adaptación a otras distros |
 |---|---|---|
-| `fish/config.fish` | `source /usr/share/cachyos-fish-config/cachyos-config.fish` | Solo CachyOS — en otra distro esa ruta no existe |
-| `fish/config.fish`, `zsh/.zshrc` | `alias update='paru -Syu'` | Familia Arch (necesita un AUR helper) |
-| `elephant/menus/sys-system.toml` | Entrada "Paquetes de Arch", usa el provider `archlinuxpkgs` de walker | Solo Arch |
-| `local/bin/desktop-orphans` | Resuelve qué paquete es dueño de un archivo con `pacman -Qo` | Familia Arch |
+| `fish/config.fish` | `source /usr/share/cachyos-fish-config/cachyos-config.fish` | Comentar si no estás en CachyOS |
+| `fish/config.fish`, `zsh/.zshrc` | `alias update='paru -Syu'` | Reemplazar por `dnf`, `apt`, `zypper` o `pacman` |
+| `local/bin/desktop-orphans` | Resuelve dueños de `.desktop` huérfanos con `pacman -Qo` | Específico de pacman |
 
-`zsh/.zshrc` deliberadamente **no** sourcea `cachyos-zsh-config` (a diferencia de la versión de
-fish con la suya): ese paquete trae oh-my-zsh + Powerlevel10k como prompt fijo, que pelea con
-starship. Cada uno de los puntos de la tabla tiene, al lado en el archivo, un comentario con el
-equivalente manual para Debian/Fedora/openSUSE.
+## Dependencias principales
 
-## Antes de usar esto
+- **Compositor y sesión:** `hyprland` (≥ 0.56.2), `uwsm`, `greetd` (opcional para autologin), `xdg-desktop-portal-hyprland`, `xdg-desktop-portal-gtk`.
+- **Barra, menús y OSD:** `waybar`, `rofi-wayland`, `rofi-calc`, `swaync`, `swayosd-git` (o binario), `cliphist`.
+- **Bloqueo y fondo:** `hyprlock`, `hypridle`, `awww` (o daemon de wallpaper compatible), `imagemagick`.
+- **Theming:** `matugen-bin` (v4.x), `python`, `jq`.
+- **Terminal y CLI:** `kitty`, `fish` y/o `zsh`, `starship`, `yazi`, `bat`, `btop`, `micro`, `fastfetch`, `eza`, `fzf`, `zoxide`.
+- **Audio y hardware:** `pipewire`, `wireplumber`, `libqalculate`, `ddcutil` (para brillo DDC de monitor), `openrgb`.
 
-- **`weather-location.example`:** copiá a `~/.config/weather-location` con tus propias
-  coordenadas (instrucciones adentro del archivo) — `install.sh` no lo pisa si ya existe.
-- **Dependencias:** `niri`, `matugen`, `waybar`/`ironbar`, `walker` + `elephant`, `mako`,
-  `hyprlock`, `hypridle`, `kitty`, `fish` y/o `zsh`, `starship`, `zoxide`, `atuin`, `eza`,
-  `bat`, `fzf`, `yazi`, `chafa`, `wl-clipboard`, `jq`, `fastfetch`.
+## Antes de usar
+
+1. **`weather-location.example`**: Copiá a `~/.config/weather-location` con tus coordenadas de latitud/longitud para el widget del clima en Waybar.
+2. **Aplicar tema inicial**:
+   ```sh
+   wallpaper-set ~/Imágenes/walls/tu_fondo.jpg
+   # o bien:
+   theme-set gruvbox-dark-medium
+   ```
 
 ## Qué NO está acá (a propósito)
 
-Se dejó afuera todo lo específico de mi red doméstica/homelab (alias SSH, IPs, MACs),
-credenciales o URLs privadas (calendario, tokens), historial de shell, bookmarks de archivos
-personales, y binarios de terceros que no son configuración.
+Siguiendo el principio de fotografía curada del sistema, se dejaron deliberadamente afuera:
+credenciales, URLs privadas (calendarios ICS), historial de terminal, bases de datos locales,
+tokens de autenticación, y binarios personales o scrapers específicos de trabajo.

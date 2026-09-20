@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Lista las acciones de mouse de cada módulo de Waybar, en TSV:
+módulo<TAB>etiqueta del click<TAB>comando<TAB>es_interna(0/1).
+
+Existe para que ~/.config/rofi/scripts/system-index (bash) no tenga que parsear
+JSONC a mano — mismo reparto que audio-streams/calendar-events.
+
+A diferencia del waybar.lua original de walker (portado de nickjj/dotfriedrice, que
+asumía bloques de módulo SIN llaves internas — un `%b{}` de Lua), esta config sí
+tiene módulos con objetos anidados (`format-icons`, por ejemplo). Se pelan los
+comentarios (solo de línea completa, que es lo único que usa este archivo —
+verificado con grep) y las comas colgantes, y el resto se parsea con el módulo
+`json` de verdad: balanceo de llaves gratis, sin la fragilidad de una regex.
+"""
+import json
+import os
+import re
+import sys
+
+CONFIG_DIR = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.environ["HOME"], ".config")
+CONFIG_PATH = os.path.join(CONFIG_DIR, "waybar", "config.jsonc")
+
+ON_EVENT_MAP = {
+    "on-click": "Click izquierdo",
+    "on-click-right": "Click derecho",
+    "on-click-middle": "Click del medio",
+    "on-click-backward": "Click atrás",
+    "on-click-forward": "Click adelante",
+    "on-scroll-up": "Scroll arriba",
+    "on-scroll-down": "Scroll abajo",
+}
+
+# Acciones que Waybar interpreta internamente (no son un comando de shell). Ningún
+# módulo de esta config las usa hoy, pero se deja para el día que alguno las declare.
+MODULE_ACTIONS = {"tz_up", "tz_down", "activate", "toggle", "mode", "shift_up", "shift_down"}
+
+
+def load_config():
+    with open(CONFIG_PATH, encoding="utf-8") as fh:
+        content = fh.read()
+    content = re.sub(r'(?m)^[ \t]*//.*$', '', content)
+    content = re.sub(r'/\*.*?\*/', '', content, flags=re.S)
+    content = re.sub(r',(\s*[}\]])', r'\1', content)
+    return json.loads(content)
+
+
+def main():
+    try:
+        config = load_config()
+    except Exception:
+        return
+    for mod, block in config.items():
+        if mod.startswith("modules-") or not isinstance(block, dict):
+            continue
+        titulo = mod[:1].upper() + mod[1:] if mod else mod
+        for key, label in ON_EVENT_MAP.items():
+            cmd = block.get(key)
+            if not isinstance(cmd, str) or not cmd.strip():
+                continue
+            cmd = cmd.strip()
+            interna = "1" if cmd in MODULE_ACTIONS else "0"
+            sys.stdout.write(f"{titulo}\t{label}\t{cmd}\t{interna}\n")
+
+
+if __name__ == "__main__":
+    main()

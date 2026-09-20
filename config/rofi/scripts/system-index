@@ -1,0 +1,1378 @@
+#!/usr/bin/env bash
+# Índice de Mod+ALT+Comma — reemplaza al provider set "system" de walker. Un
+# script, no un despachador por menú (la excepción a "un script por menú": este
+# es el índice, y su trabajo es justamente aplanar). Cubre lo que ya tiene
+# script propio en ~/.local/bin: animaciones, cursores, energía, paquete de
+# íconos, toggles, temas, fuentes y sombras de ventana, más Multimedia (audio),
+# Red (bluetooth, cable y WiFi con nmcli — ver la sección de Red más abajo) y
+# Utilidades/Ventanas (agenda, clima, atajos, waybar). audio/calendar/
+# weather/keybinds/waybar/bluetooth se armaron primero como procesos de rofi con
+# bind propio, y se consolidaron acá porque NINGUNO necesitaba cruzar un límite
+# de proceso (matar un rofi y lanzar otro), que es la única razón real por la
+# que "Fondos de pantalla" quedó afuera del índice — ver el comentario grande
+# más abajo. Red arrancó con `networkmanager_dmenu` (que abre su propio
+# `rofi -dmenu`) y se reescribió como "modo propio" con nmcli el 2026-09-09 —
+# feo, sin íconos posibles en modo dmenu, y con una carrera de pidfile real que
+# tiraba notificaciones de error en cada uso. Detalle y razones en el vault:
+# "Rofi y los menús", sección "Bluetooth y Red: modo propio".
+#
+# Estado de navegación: viaja en $ROFI_INFO, no en $1. Cada fila que "entra" a algo
+# lleva \0info\x1f<id>; rofi la devuelve como $ROFI_INFO en la invocación siguiente.
+# `opt:<leaf>:<valor>` son las hojas de verdad: al elegirlas se aplica la acción y se
+# reimprime la MISMA lista (equivalente a AsyncClearReload), para ver el nuevo
+# marcador de "activo" sin cerrar rofi.
+#
+# ─── Filas de dos líneas: por qué el delimitador no es \n ───
+#
+# La fila de walker es título arriba y subtexto tenue abajo. En script mode de rofi el
+# \n es el SEPARADOR DE FILAS, así que "titulo\nsubtitulo" no da una fila de dos
+# líneas: da dos filas, y la segunda se lleva el ícono y todos los campos \0. (Así
+# estaba antes y así se veía en pantalla: el doble de filas, con el ícono suelto.)
+#
+# `-eh 2` no sirve: estira el alto de cada fila, no agrupa líneas de entrada (probado).
+#
+# Lo que sí sirve es la opción `delim` de rofi-script(5): cambia el separador de filas.
+# Con delim = \x1e (RS), un \n pasa a ser texto común dentro de la fila y Pango lo
+# renderiza como salto de línea real. Dos detalles que costaron una prueba cada uno:
+#
+#   1. La línea que cambia el delim se cierra con el delimitador VIEJO (\n). Si se
+#      cierra con el nuevo, rofi todavía lee esa primera línea con \n, se traga la
+#      primera fila y no aplica markup-rows.
+#   2. Solo se manda en la llamada inicial (ROFI_RETV=0): rofi lo recuerda para las
+#      siguientes. Reenviarlo cuando el delim ya es \x1e lo dejaría vacío y rompería
+#      todo el parseo.
+#
+# De ahí que TODA línea de opción y TODA fila de este script termine en \x1e y no en
+# \n. Un `echo` suelto acá adentro rompe la lista entera.
+
+set -uo pipefail
+
+# ─── Íconos de navegación ───
+#
+# Glifos Nerd Font pasados como "markup icon" (rofi-theme(5), Icon Handling), teñidos con
+# los colores del tema activo. Se leen de colors.rasi en cada invocación: un cambio de tema
+# entra en la próxima apertura, igual que el resto de la paleta. El fallback solo evita un
+# span vacío si la línea no está.
+COLORES="$HOME/.config/rofi/colors.rasi"
+ACCENT=$(sed -n 's/^ *accent: *\(#[0-9a-fA-F]\{6\}\);.*/\1/p' "$COLORES")
+FG_ALT=$(sed -n 's/^ *foreground-alt: *\(#[0-9a-fA-F]\{6\}\);.*/\1/p' "$COLORES")
+: "${ACCENT:=#a8c8ff}" "${FG_ALT:=#c4c6cf}"
+
+# g <codepoint en hex> [color]  →  <span color='…'>glifo</span>
+g() {
+    local c; printf -v c '%08X' "0x$1"
+    printf "<span color='%s'>%b</span>" "${2:-$ACCENT}" "\\U$c"
+}
+
+# Padre de cada estado. Lo usan las dos formas de subir un nivel: la fila "Volver" y la
+# flecha Izquierda.
+padre() {
+    case "$1" in
+        leaf:fonts:*)                echo "leaf:fonts" ;;
+        leaf:wallpapers:dir|leaf:wallpapers:dur) echo "leaf:wallpapers" ;;
+        leaf:wallpapers)             echo "cat:appearance" ;;
+        leaf:energy|leaf:toggles)    echo "cat:system" ;;
+        leaf:audio|leaf:player)      echo "cat:multimedia" ;;
+        leaf:bluetooth)               echo "cat:red" ;;
+        btdev:*)                      echo "leaf:bluetooth" ;;
+        leaf:network)                 echo "cat:red" ;;
+        netdev:eth:*|netdev:wifi:*)   echo "leaf:network" ;;
+        leaf:calendar|leaf:weather)   echo "cat:utilidades" ;;
+        leaf:keybinds|leaf:waybar)    echo "cat:ventanas" ;;
+        leaf:*)                      echo "cat:appearance" ;;
+        *)                           echo "top" ;;
+    esac
+}
+
+info="${ROFI_INFO:-top}"
+
+# ROFI_RETV=10 es el custom-1 del bind, o sea la flecha Izquierda (ver keybinds.kdl):
+# "un nivel atrás", el `menus:parent` de walker. Ojo con de dónde sale el estado: la
+# tecla NO informa en qué nivel estás parado — ROFI_INFO trae el `info` de la FILA
+# seleccionada, que apunta a dónde iría ESA fila. El nivel actual viaja aparte, en
+# ROFI_DATA, que este script se manda a sí mismo en cada impresión (opción `data` de
+# rofi-script(5), ver preludio()).
+if [[ ${ROFI_RETV:-0} -eq 10 ]]; then
+    info=$(padre "${ROFI_DATA:-top}")
+fi
+
+# ─── El selector de fondos NO vive acá ───
+#
+# Es otra aplicación: ~/.local/bin/fondos-selector, GTK4 sobre layer-shell, una banda
+# horizontal abajo con miniaturas grandes. No cabe en esta instancia de rofi —
+# `listview.columns`/`layout` y `element-icon{size}` se leen una sola vez al arrancar
+# (`listview_create`, `icon_create`, rofi 2.0.0)— y tampoco en otro rofi: la tira
+# horizontal de rofi no dibuja celdas cortadas en el borde, y rofi no tiene sombras. Acá
+# quedan la rama "Fondos de pantalla", Directorio y Duración, que sí son listas.
+#
+# Cruzar a otro proceso ya falló dos veces, y el salto actual evita las dos causas:
+#
+#   1. Matar el rofi viejo y lanzar el nuevo en la misma ejecución (`kill "$PPID"`,
+#      `pkill -x rofi`) terminó con la sesión gráfica reiniciada, tres veces, bajo niri.
+#      Acá nadie manda señales: la fila es una `act:` y este script termina sin imprimir
+#      filas, que es la señal de rofi-script(5) para que rofi se cierre SOLO.
+#   2. Bloquear dentro del script esperando a que la ventana nueva dibujara (el viejo
+#      `rofi-relevo`) dio un SIGSEGV: `process_result()` desmonta la vista y recién
+#      después corre el script, y ~200 ms con la vista en NULL y las teclas llegando
+#      alcanzan para que `rofi_view_trigger_global_action()` desreferencie NULL. Acá el
+#      único trabajo sincrónico es un `hyprctl eval` de milisegundos.
+#
+# El parpadeo que el relevo intentaba tapar tampoco existe ya: venía de la ventana a
+# pantalla completa, que se fue (ver layout.rasi). Y el salto se ve como una transición:
+# este menú baja al irse por la regla `_G.rofi_fondos_anim` (hypr/cfg/rules.lua), que se
+# prende acá y apaga el selector, y el selector sube por su propia layer rule.
+
+if [[ ${ROFI_RETV:-0} -eq 0 ]]; then
+    printf '\0delim\x1f\x1e\n'
+fi
+
+# Escapa lo que va adentro del markup Pango. Los nombres son dinámicos (familias
+# tipográficas, carpetas de temas): un "&" suelto invalida el markup y Pango escupe
+# la fila entera como texto crudo. El & va primero o se re-escapan los otros.
+pretty() {
+    local s="${1//[_-]/ }" out="" word
+    for word in $s; do
+        out+="${word^} "
+    done
+    printf '%s' "${out% }"
+}
+
+# preludio <titulo> <estado>
+preludio() {
+    printf '\0no-custom\x1ftrue\x1e'
+    printf '\0markup-rows\x1ftrue\x1e'
+    # Sin use-hot-keys los custom keybindings del script no llegan acá y la flecha
+    # Izquierda no hace nada.
+    printf '\0use-hot-keys\x1ftrue\x1e'
+    # El nivel que se está dibujando, para que la próxima invocación sepa dónde estaba
+    # parada (llega como ROFI_DATA).
+    printf '\0data\x1f%s\x1e' "$2"
+    printf '\0prompt\x1f%s\x1e' "$1"
+}
+
+mantener() {
+    printf '\0keep-selection\x1ftrue\x1e'
+}
+
+# fila <texto> <subtexto> <icono> <info> [activo] [urgente]
+#
+# El texto de la fila es PLANO (título + subtexto, sin markup) y la pinta va aparte en
+# \0display\x1f. Es la división que documenta rofi-script(5): display reemplaza lo que
+# se dibuja, el texto original se sigue usando para filtrar. Si el markup viviera en el
+# texto de la fila, tipear "small" o "span" matchearía todo el menú.
+#
+# `urgente` (Fase 6, agenda/clima): mismo mecanismo que `activo`, pero con la clase
+# `urgent` del tema en vez de `active` — en layout.rasi eso solo cambia el color del
+# texto, sin fondo, el mismo destaque sutil que hacía `State="today"` en walker.
+fila() {
+    local texto="$1" sub="$2" icono="$3" idinfo="$4" activo="${5:-}" urgente="${6:-}"
+    local plano="${texto} ${sub}"
+
+    # ─── Por qué acá no hay un solo `$(...)` ───
+    #
+    # Esta función la llama TODO el menú, y el Selector de fondos puede tener cientos de
+    # filas. Cada `$(...)` es un fork: con `iconv | tr` para el meta y dos `$(pango ...)`
+    # para el display eran ~6 procesos por fila, o sea ~3000 con 516 fondos, y la
+    # reimpresión tardaba 1,5 s. Con expansión de bash pura: 0,2 s (medido). Por eso el
+    # escapado Pango está escrito acá adentro en vez de en una función aparte.
+    #
+    # \0meta\x1f: copia sin acentos y en minúscula, para que "energia" encuentre "Energía"
+    # — rofi filtra sobre el texto tal cual, sin normalizar tildes. `${x,,}` sí baja las
+    # acentuadas en un locale UTF-8, así que las clases de abajo solo llevan minúsculas
+    # (verificado contra `iconv -t ascii//TRANSLIT`, misma salida).
+    local meta="${plano,,}"
+    meta="${meta//[áàäâã]/a}"
+    meta="${meta//[éèëê]/e}"
+    meta="${meta//[íìïî]/i}"
+    meta="${meta//[óòöôõ]/o}"
+    meta="${meta//[úùüû]/u}"
+    meta="${meta//ñ/n}"
+    meta="${meta//ç/c}"
+
+    local t="${texto//&/&amp;}"; t="${t//</&lt;}"; t="${t//>/&gt;}"
+    local u="${sub//&/&amp;}"; u="${u//</&lt;}"; u="${u//>/&gt;}"
+    local vista="${t}"$'\n'"<span size=\"small\" alpha=\"55%\">${u}</span>"
+    printf '%s\0display\x1f%s\x1ficon\x1f%s\x1finfo\x1f%s\x1fmeta\x1f%s' \
+        "$plano" "$vista" "$icono" "$idinfo" "$meta"
+    [[ -n $activo ]] && printf '\x1factive\x1ftrue'
+    [[ -n $urgente ]] && printf '\x1furgent\x1ftrue'
+    printf '\x1e'
+}
+
+volver() {
+    fila "Volver" "← o flecha izquierda" "$(g F004D "$FG_ALT")" "$(padre "$estado")"
+}
+
+# ─── Listados de cada hoja (leen el estado real, no un cache propio) ───
+
+listar_animations() {
+    local activo
+    activo=$(hypr-animation --actual 2>/dev/null || echo "vertical")
+    while read -r f; do
+        [[ -z $f ]] && continue
+        local pack="${f%.lua}"
+        local meta
+        meta=$(LUA_PATH="$HOME/.config/hypr/?.lua;;" lua -e "local a=require('animations.$pack'); print(a.description or '')" 2>/dev/null || echo "")
+        if [[ $pack == "$activo" ]]; then
+            fila "$(pretty "$pack")" "activo · ${meta:-$pack}" "preferences-desktop-screensaver" "opt:animation:${pack}" 1
+        else
+            fila "$(pretty "$pack")" "${meta:-$pack}" "preferences-desktop-screensaver" "opt:animation:${pack}"
+        fi
+    done < <(find "$HOME/.config/hypr/animations" -maxdepth 1 -name '*.lua' -printf '%P\n' 2>/dev/null | sort)
+}
+
+listar_cursors() {
+    # cursor-set no separa marcador y nombre con un delimitador parseable: la fila
+    # inactiva es "  <nombre>" (dos espacios de relleno) y la activa "* <nombre>" —
+    # `read marker name` le come el primer espacio y en la inactiva deja `name` vacío.
+    # Se parte por posición fija (2 caracteres), no por campos.
+    local line marker name
+    while IFS= read -r line; do
+        [[ -z $line ]] && continue
+        marker="${line:0:1}"
+        name="${line:2}"
+        [[ -z $name ]] && continue
+        if [[ $marker == "*" ]]; then
+            fila "$(pretty "$name")" "activo" "preferences-desktop-cursors" "opt:cursor:${name}" 1
+        else
+            fila "$(pretty "$name")" "$name" "preferences-desktop-cursors" "opt:cursor:${name}"
+        fi
+    done < <(cursor-set 2>/dev/null)
+}
+
+listar_iconpacks() {
+    local line marker name
+    while IFS= read -r line; do
+        [[ -z $line ]] && continue
+        marker="${line:0:1}"
+        name="${line:2}"
+        [[ -z $name ]] && continue
+        local sub
+        if [[ $name == "Tela-circle" || $name == "Papirus" ]]; then
+            sub="recolorea con matugen"
+        else
+            sub="sin variantes de color"
+        fi
+        if [[ $marker == "*" ]]; then
+            fila "$(pretty "$name")" "${sub} · activo" "preferences-desktop-icons" "opt:iconpack:${name}" 1
+        else
+            fila "$(pretty "$name")" "$sub" "preferences-desktop-icons" "opt:iconpack:${name}"
+        fi
+    done < <(icon-set 2>/dev/null)
+}
+
+listar_themes() {
+    local activo=""
+    [[ -r "$HOME/.config/themes/.activo" ]] && activo=$(<"$HOME/.config/themes/.activo")
+    while read -r name; do
+        [[ -z $name ]] && continue
+        local sub
+        if [[ $name == "matugen" ]]; then sub="generado del fondo"; else sub="curado"; fi
+        if [[ $name == "$activo" ]]; then
+            fila "$(pretty "$name")" "${sub} · activo" "preferences-desktop-theme" "opt:theme:${name}" 1
+        else
+            fila "$(pretty "$name")" "$sub" "preferences-desktop-theme" "opt:theme:${name}"
+        fi
+    done < <(find "$HOME/.config/themes" -mindepth 1 -maxdepth 1 -type d -printf '%P\n' 2>/dev/null | sort)
+}
+
+listar_shadows() {
+    # hypr-window-shadow imprime "* black" / "  colorful-glow" (marcador de dos
+    # caracteres + nombre, igual que cursor-set/icon-set): posición fija, no campos.
+    local line marker name
+    local -A etiquetas=( [black]="Sombra negra" [colorful-glow]="Glow colorido" )
+    local -A iconos=( [black]="weather-clear-night" [colorful-glow]="preferences-desktop-color" )
+    while IFS= read -r line; do
+        [[ -z $line ]] && continue
+        marker="${line:0:1}"
+        name="${line:2}"
+        [[ -z $name ]] && continue
+        local etiqueta="${etiquetas[$name]:-$name}" icono="${iconos[$name]:-preferences-desktop-theme}"
+        if [[ $marker == "*" ]]; then
+            fila "$etiqueta" "activo" "$icono" "opt:shadow:${name}" 1
+        else
+            fila "$etiqueta" "$name" "$icono" "opt:shadow:${name}"
+        fi
+    done < <(hypr-window-shadow 2>/dev/null)
+}
+
+listar_audio() {
+    # Producto cruzado (apps que suenan × salidas disponibles), leído de
+    # audio-streams (~/.local/bin) — el mismo parseo de PipeWire que usaba
+    # menus:audio en walker. Una fila por destino posible; el índice de
+    # sink-input puede cambiar apenas se mueve algo, por eso aplicar_y_reimprimir
+    # vuelve a llamar a audio-streams en vez de reusar esta lista.
+    local n=0
+    while IFS=$'\t' read -r idx app icono sink salida actual detalle; do
+        [[ -z $idx ]] && continue
+        local sub="mover a ${salida}"
+        [[ $actual == "1" ]] && sub="acá está sonando ahora"
+        if [[ -n $detalle && $detalle != "Playback" ]]; then
+            sub="${sub} · ${detalle}"
+        fi
+        [[ -z $icono ]] && icono="applications-multimedia"
+        fila "${app} → ${salida}" "$sub" "$icono" "opt:audio:${idx}:${sink}" "$([[ $actual == "1" ]] && echo 1)"
+        n=$((n + 1))
+    done < <(audio-streams 2>/dev/null)
+    if [[ $n -eq 0 ]]; then
+        fila "No hay ninguna aplicación reproduciendo" "poné play y volvé a abrir" "$(g F057E)" "leaf:audio"
+    fi
+}
+
+listar_player() {
+    # playerctld (no playerctl a secas): es el mismo agregador que ya usa
+    # waybar-mpris para el módulo `custom/mpris` — sigue al reproductor MPRIS
+    # más recientemente activo sin que este menú tenga que elegir cuál. Una sola
+    # llamada, igual que ahí, en vez de una por dato.
+    local status title artist
+    IFS=$'\t' read -r status title artist < <(
+        playerctl --player=playerctld metadata --format $'{{status}}\t{{title}}\t{{artist}}' 2>/dev/null
+    )
+    if [[ -z $status || $status == "Stopped" ]]; then
+        fila "Sin reproductor activo" "playerctl no ve nada sonando por MPRIS" "$(g F0960)" "leaf:player"
+        return
+    fi
+
+    local combinado="$title"
+    [[ -n $artist ]] && combinado="${title} - ${artist}"
+
+    if [[ $status == "Playing" ]]; then
+        fila "Pausar" "$combinado" "media-playback-pause-symbolic" "opt:player:playpause" 1
+    else
+        fila "Reproducir" "$combinado" "media-playback-start-symbolic" "opt:player:playpause"
+    fi
+    fila "Siguiente" "salta a la pista siguiente" "media-skip-forward-symbolic" "opt:player:next"
+    fila "Anterior" "vuelve a la pista anterior" "media-skip-backward-symbolic" "opt:player:previous"
+}
+
+listar_calendar() {
+    # calendar-events baja el .ics y ya devuelve los eventos en orden cronológico.
+    # No hay nada que ejecutar sobre un evento puntual (la URL es de solo lectura):
+    # toda fila abre Google Calendar y listo, por eso usa el prefijo "act:" (dispará
+    # y listo, sin reimprimir) en vez de "opt:".
+    local n=0
+    while IFS=$'\t' read -r _iso cuando resumen lugar; do
+        [[ -z $resumen ]] && continue
+        local sub="$cuando"
+        [[ -n $lugar ]] && sub="${cuando} · ${lugar}"
+        local urgente=""
+        [[ ${cuando:0:3} == "hoy" ]] && urgente=1
+        fila "$resumen" "$sub" "office-calendar" "act:calendar:open" "" "$urgente"
+        n=$((n + 1))
+    done < <(calendar-events 2>/dev/null)
+    if [[ $n -eq 0 ]]; then
+        fila "Sin eventos próximos" "abrir Google Calendar" "office-calendar" "act:calendar:open"
+    else
+        fila "Abrir Google Calendar" "para crear o editar" "office-calendar" "act:calendar:open"
+    fi
+}
+
+listar_weather() {
+    local n=0
+    while IFS=$'\t' read -r dia detalle icono hoy; do
+        [[ -z $dia ]] && continue
+        local urgente=""
+        [[ $hoy == "hoy" ]] && urgente=1
+        fila "$dia" "$detalle" "$icono" "act:weather:open" "" "$urgente"
+        n=$((n + 1))
+    done < <(weather-forecast --menu 2>/dev/null)
+    if [[ $n -eq 0 ]]; then
+        fila "Sin datos del clima" "revisar la red o ~/.config/weather-location" "weather-none-available" "act:weather:open"
+    else
+        fila "Ver el pronóstico completo" "por hora, en el navegador" "weather-clear" "act:weather:open"
+    fi
+}
+
+# `hyprctl binds` da los modificadores como máscara de bits, no como nombres. Los bits son
+# los de xkb, y se confirman contra los binds propios: 64 = el Mod de siempre (SUPER), y
+# 72 = 64+8 es Mod+ALT, que es lo que tiene la Calculadora en binds.lua.
+mods_de_mask() {
+    local m="$1" out=()
+    (( m & 1 ))  && out+=(SHIFT)
+    (( m & 4 ))  && out+=(CTRL)
+    (( m & 8 ))  && out+=(ALT)
+    (( m & 64 )) && out+=(SUPER)
+    local IFS=" "
+    printf '%s' "${out[*]/#/}" | sed 's/ / + /g'
+}
+
+listar_keybinds() {
+    local binds_json mask key title mods
+    binds_json=$(hyprctl -j binds 2>/dev/null || echo "[]")
+    while IFS=$'\t' read -r mask key title; do
+        [[ -z $key ]] && continue
+        mods=$(mods_de_mask "$mask")
+        fila "${mods:+$mods + }$key" "$title" "cs-keyboard" "act:hyprbind:${title}"
+    done < <(echo "$binds_json" | jq -r '.[] | select(.description != "") | "\(.modmask)\t\(.key)\t\(.description)"' 2>/dev/null | sort -k3)
+}
+
+listar_waybar() {
+    # waybar-mouse-actions (~/.local/bin) parsea config.jsonc. Las "acciones
+    # internas" de Waybar (mode, tz_up...) no son un comando de shell: la fila se
+    # ve igual pero seleccionarla solo redibuja esta misma lista (info=leaf:waybar).
+    while IFS=$'\t' read -r modulo etiqueta comando interna; do
+        [[ -z $modulo ]] && continue
+        if [[ $interna == "1" ]]; then
+            fila "${modulo}: ${etiqueta}" "(acción interna) ${comando}" "cs-details" "leaf:waybar"
+        else
+            fila "${modulo}: ${etiqueta}" "$comando" "cs-mouse" "act:waybar:${comando}"
+        fi
+    done < <(waybar-mouse-actions 2>/dev/null)
+}
+
+# ─── Bluetooth: "modo propio", no un puerto de nickclyde/rofi-bluetooth (se
+# descartó por presentación — autolanzante, cada submenú abre un rofi nuevo,
+# filas sin íconos; detalle en el vault, "Rofi y los menús"). Lo único que se
+# rescató de ahí es la idea de qué comandos hacen falta; el resto sigue
+# `man bluetoothctl` al pie de la letra. Namespace propio (btdev:/btact:) para
+# no chocar con opt:/leaf:/cat: del resto del índice — es el mismo script, no
+# un modo aparte.
+
+bt_adaptador_encendido() {
+    timeout 5 bluetoothctl show 2>/dev/null | grep -qm1 '^\s*Powered:\s*yes'
+}
+
+# bt_info_dev <mac> — llena nombre/paired/connected/trusted/icono
+bt_info_dev() {
+    local mac="$1" out
+    out=$(timeout 5 bluetoothctl info "$mac" 2>/dev/null)
+    nombre=$(grep -m1 '^\s*Name:' <<<"$out" | sed 's/^\s*Name:\s*//')
+    [[ -z $nombre ]] && nombre=$(grep -m1 '^\s*Alias:' <<<"$out" | sed 's/^\s*Alias:\s*//')
+    [[ -z $nombre ]] && nombre="$mac"
+    paired=0; connected=0; trusted=0
+    grep -qm1 '^\s*Paired:\s*yes' <<<"$out" && paired=1
+    grep -qm1 '^\s*Connected:\s*yes' <<<"$out" && connected=1
+    grep -qm1 '^\s*Trusted:\s*yes' <<<"$out" && trusted=1
+    icono=$(grep -m1 '^\s*Icon:' <<<"$out" | sed 's/^\s*Icon:\s*//')
+    [[ -z $icono ]] && icono="bluetooth"
+}
+
+listar_bt_top() {
+    if bt_adaptador_encendido; then
+        fila "Bluetooth" "encendido" "bluetooth-active" "btact:power" 1
+    else
+        fila "Bluetooth" "apagado" "bluetooth-disabled" "btact:power"
+    fi
+    fila "Buscar dispositivos" "escanea 8 segundos y vuelve a esta lista" "view-refresh" "btact:scan"
+
+    local n=0 mac nombre paired connected trusted icono
+    while IFS= read -r mac; do
+        [[ -z $mac ]] && continue
+        bt_info_dev "$mac"
+        local sub="sin emparejar"
+        [[ $paired -eq 1 ]] && sub="emparejado"
+        [[ $connected -eq 1 ]] && sub="conectado"
+        fila "$nombre" "$sub" "$icono" "btdev:${mac}" "$([[ $connected -eq 1 ]] && echo 1)"
+        n=$((n + 1))
+    done < <(timeout 5 bluetoothctl devices 2>/dev/null | awk '{print $2}')
+
+    if [[ $n -eq 0 ]]; then
+        fila "Sin dispositivos conocidos" "Buscar dispositivos para escanear" "$(g F00AF)" "leaf:bluetooth"
+    fi
+}
+
+listar_bt_dev() {
+    local mac="$1" nombre paired connected trusted icono
+    bt_info_dev "$mac"
+    if [[ $connected -eq 1 ]]; then
+        fila "Desconectar" "$nombre" "network-wireless-disconnected" "btact:${mac}:disconnect"
+    else
+        fila "Conectar" "$nombre" "network-wireless-connected" "btact:${mac}:connect"
+    fi
+    if [[ $paired -eq 0 ]]; then
+        fila "Emparejar" "necesario antes de conectar por primera vez" "bluetooth" "btact:${mac}:pair"
+    fi
+    if [[ $trusted -eq 1 ]]; then
+        fila "No confiar" "no reconectará solo" "changes-prevent" "btact:${mac}:untrust"
+    else
+        fila "Confiar" "permite reconectar sin confirmar" "changes-allow" "btact:${mac}:trust"
+    fi
+    if [[ $paired -eq 1 ]]; then
+        fila "Olvidar" "quita el emparejamiento" "edit-delete" "btact:${mac}:remove"
+    fi
+}
+
+aplicar_bluetooth() {
+    local id="$1"
+    local accion="${id#btact:}"
+    case "$accion" in
+        power)
+            if bt_adaptador_encendido; then
+                timeout 5 bluetoothctl power off >/dev/null 2>&1
+            else
+                timeout 5 bluetoothctl power on >/dev/null 2>&1
+            fi
+            mantener; listar_bt_top
+            ;;
+        scan)
+            # -t: timeout no interactivo (man bluetoothctl). El comando vuelve solo
+            # a los 8s, sin backgroundear ni matar nada.
+            timeout 10 bluetoothctl -t 8 scan on >/dev/null 2>&1
+            mantener; listar_bt_top
+            ;;
+        *:connect)
+            timeout 8 bluetoothctl connect "${accion%:*}" >/dev/null 2>&1
+            mantener; volver; listar_bt_dev "${accion%:*}"
+            ;;
+        *:disconnect)
+            timeout 8 bluetoothctl disconnect "${accion%:*}" >/dev/null 2>&1
+            mantener; volver; listar_bt_dev "${accion%:*}"
+            ;;
+        *:pair)
+            timeout 15 bluetoothctl pair "${accion%:*}" >/dev/null 2>&1
+            mantener; volver; listar_bt_dev "${accion%:*}"
+            ;;
+        *:trust)
+            timeout 5 bluetoothctl trust "${accion%:*}" >/dev/null 2>&1
+            mantener; volver; listar_bt_dev "${accion%:*}"
+            ;;
+        *:untrust)
+            timeout 5 bluetoothctl untrust "${accion%:*}" >/dev/null 2>&1
+            mantener; volver; listar_bt_dev "${accion%:*}"
+            ;;
+        *:remove)
+            timeout 5 bluetoothctl remove "${accion%:*}" >/dev/null 2>&1
+            # El dispositivo deja de existir: no hay "btdev:<mac>" al que volver.
+            estado="leaf:bluetooth"
+            mantener; listar_bt_top
+            ;;
+    esac
+}
+
+# ─── Red: "modo propio" con nmcli (ajuste 2026-09-09) ───
+#
+# Reemplaza a networkmanager_dmenu. Se dio de baja por tres motivos, los tres
+# reales y verificados, no cosméticos (detalle en el vault, "Rofi y los menús"):
+#   1. Roberto lo marcó "feo y poco intuitivo" — el modo `-dmenu` de rofi es
+#      texto plano sin campo \0icon, así que no hay forma de ponerle íconos ni de
+#      controlar el orden de las secciones sin parchear el binario vendorizado
+#      (prohibido: es paquete de terceros, no código propio).
+#   2. "dmenu command failed: ... Failed to set lock on pidfile" en CADA uso: el
+#      rofi de system-index todavía no terminó de cerrar (libera
+#      /run/user/$UID/rofi.pid de forma asíncrona) cuando el siguiente rofi
+#      -dmenu de networkmanager_dmenu ya está intentando arrancar — una carrera
+#      de verdad, no un error cosmético. La solución no es "esperar un poco al
+#      lanzar" en abstracto: es directamente no depender de un segundo proceso
+#      de rofi para esto.
+#   3. El orden de las secciones (cable → WiFi → otras) lo decide el Python de
+#      networkmanager_dmenu, no es configurable.
+#
+# Con nmcli en un leaf más de este script no hace falta ningún rofi nuevo: todo
+# vive en el mismo proceso, con el mismo idioma info/data que bluetooth. La
+# única vez que este código SÍ lanza un rofi nuevo es el prompt de contraseña
+# para una red WiFi sin guardar (rofi no tiene forma de pedir texto oculto desde
+# script mode, solo desde -dmenu -password) — ahí se aplica
+# esperar_cierre_rofi() antes de abrirlo, así no se repite el bug del punto 2.
+
+net_networking_on() { [[ $(nmcli networking 2>/dev/null) == "enabled" ]]; }
+net_wifi_on() { [[ $(nmcli radio wifi 2>/dev/null) == "enabled" ]]; }
+
+# Dispositivo WiFi de esta máquina (por si algún día no es "wlan0").
+net_wifi_dev() {
+    nmcli -t -f DEVICE,TYPE device status 2>/dev/null | awk -F: '$2=="wifi"{print $1; exit}'
+}
+
+# ¿Hay una conexión GUARDADA con ese nombre? nmcli nombra los perfiles
+# auto-creados igual al SSID, así que esto alcanza para el caso común.
+# OJO: `nmcli connection show <id>` (detalle de UNA conexión) no acepta los
+# nombres de columna de la vista de lista (NAME, TYPE...) en `-f` — solo
+# "profile"/"active" o campos GENERAL.*/IP4.*/etc (probado a mano: `-f NAME`
+# tira "campo NAME no válido"). Para solo verificar existencia alcanza con el
+# código de salida, sin `-f` de por medio.
+net_saved() { nmcli connection show "$1" >/dev/null 2>&1; }
+
+# net_signal_icon/net_signal_label <0-100> — mismos cinco baldes que
+# network-wireless-signal-{excellent,good,ok,weak,none}-symbolic (heredados de
+# breeze-dark vía Papirus-Dark, verificados en pantalla).
+net_signal_icon() {
+    local s="${1:-0}"
+    if   (( s >= 80 )); then echo "network-wireless-signal-excellent-symbolic"
+    elif (( s >= 60 )); then echo "network-wireless-signal-good-symbolic"
+    elif (( s >= 40 )); then echo "network-wireless-signal-ok-symbolic"
+    elif (( s >= 20 )); then echo "network-wireless-signal-weak-symbolic"
+    else                     echo "network-wireless-signal-none-symbolic"
+    fi
+}
+
+net_signal_label() {
+    local s="${1:-0}"
+    if   (( s >= 80 )); then echo "excelente"
+    elif (( s >= 60 )); then echo "buena"
+    elif (( s >= 40 )); then echo "regular"
+    elif (( s >= 20 )); then echo "débil"
+    else                     echo "sin señal"
+    fi
+}
+
+# Orden pedido por Roberto (2026-09-09): configuración de cable, redes
+# cableadas, configuración de WiFi, redes WiFi — todo en una sola lista plana,
+# sin sub-categorías, calcado a como bluetooth mezcla power/scan/dispositivos
+# en un mismo nivel.
+#
+# NO hay fila de "editor gráfico de conexiones". La hubo, y era una fila muerta:
+# `nm-connection-editor` no está instalado en esta máquina (no lo trae ningún
+# paquete), así que elegirla cerraba el launcher y no pasaba nada — el
+# `&`+`disown` de las acciones "disparar y listo" se comía el "command not
+# found". Y aunque estuviera instalado no iría: este menú YA es la interfaz de
+# NetworkManager acá. Lo único que el editor agrega sobre estas filas son
+# perfiles de VPN, WWAN e IP estática, que esta máquina no usa, y a cambio
+# rompe la propiedad que sostiene todo el diseño de esta sección — que la red
+# se resuelva sin salir del launcher.
+listar_network() {
+    if net_networking_on; then
+        fila "Redes" "activadas — controla cable y WiFi juntos" "preferences-system-network" "netact:networking" 1
+    else
+        fila "Redes" "desactivadas" "network-offline" "netact:networking"
+    fi
+
+    local tipo estado dev con
+    while IFS=: read -r tipo estado dev con; do
+        [[ $tipo == "ethernet" ]] || continue
+        local activa="" icono="network-wired-disconnected-symbolic" sub="desconectado"
+        if [[ $estado == connected* ]]; then
+            icono="network-wired-activated-symbolic"; sub="conectado"; activa=1
+        fi
+        fila "${con:-$dev}" "$sub" "$icono" "netdev:eth:${dev}" "$activa"
+    done < <(nmcli -t -f TYPE,STATE,DEVICE,CONNECTION device status 2>/dev/null)
+
+    if net_wifi_on; then
+        fila "WiFi" "encendido" "network-wireless-on" "netact:wifi_radio" 1
+        fila "Buscar redes" "escanea y vuelve a esta lista" "view-refresh" "netact:scan"
+
+        local -A vistas
+        local n=0 inuse signal security ssid
+        while IFS=: read -r inuse signal security ssid; do
+            [[ -z $ssid ]] && continue
+            [[ -n ${vistas[$ssid]:-} ]] && continue
+            vistas[$ssid]=1
+            local activa="" sub icono
+            icono=$(net_signal_icon "$signal")
+            sub=$(net_signal_label "$signal")
+            [[ $security != "--" ]] && sub="${sub} · ${security}"
+            if [[ $inuse == "*" ]]; then
+                sub="conectada · ${sub}"; activa=1
+            fi
+            fila "$ssid" "$sub" "$icono" "netdev:wifi:${ssid}" "$activa"
+            n=$((n + 1))
+        done < <(nmcli -t -f IN-USE,SIGNAL,SECURITY,SSID device wifi list 2>/dev/null | sort -t: -k2 -rn)
+
+        if [[ $n -eq 0 ]]; then
+            fila "Sin redes visibles" "Buscar redes para escanear" "network-wireless-signal-none-symbolic" "leaf:network"
+        fi
+    else
+        fila "WiFi" "apagado" "network-wireless-off" "netact:wifi_radio"
+    fi
+}
+
+listar_netdev_eth() {
+    local dev="$1" linea estado con
+    linea=$(nmcli -t -f DEVICE,STATE,CONNECTION device status 2>/dev/null | awk -F: -v d="$dev" '$1==d')
+    estado="${linea#*:}"; estado="${estado%%:*}"
+    con="${linea#*:*:}"
+    if [[ $estado == connected* ]]; then
+        fila "Desconectar" "${con:-$dev}" "network-wired-disconnected-symbolic" "netact:eth:${dev}:down"
+    else
+        fila "Conectar" "${con:-$dev}" "network-wired-activated-symbolic" "netact:eth:${dev}:up"
+    fi
+}
+
+listar_netdev_wifi() {
+    local ssid="$1" dev con guardada="" conectada=""
+    dev=$(net_wifi_dev)
+    con=$(nmcli -t -f DEVICE,CONNECTION device status 2>/dev/null | awk -F: -v d="$dev" '$1==d{print $2}')
+    [[ $con == "$ssid" ]] && conectada=1
+    net_saved "$ssid" && guardada=1
+
+    if [[ -n $conectada ]]; then
+        fila "Desconectar" "$ssid" "network-wireless-disconnected-symbolic" "netact:wifi:${ssid}:disconnect"
+    else
+        # Conectar puede necesitar contraseña (rofi nuevo, ver más abajo) — por
+        # eso es "act:" (disparar y salir), no "netact:" (aplicar y reimprimir).
+        fila "Conectar" "$ssid" "network-wireless-on" "act:network:connect:${ssid}"
+    fi
+    if [[ -n $guardada ]]; then
+        fila "Olvidar" "quita la red guardada" "edit-delete" "netact:wifi:${ssid}:forget"
+    fi
+}
+
+aplicar_netact() {
+    local id="$1"
+    local accion="${id#netact:}"
+    case "$accion" in
+        networking)
+            if net_networking_on; then nmcli networking off >/dev/null 2>&1; else nmcli networking on >/dev/null 2>&1; fi
+            mantener; listar_network
+            ;;
+        wifi_radio)
+            if net_wifi_on; then nmcli radio wifi off >/dev/null 2>&1; else nmcli radio wifi on >/dev/null 2>&1; fi
+            mantener; listar_network
+            ;;
+        scan)
+            timeout 10 nmcli device wifi rescan >/dev/null 2>&1
+            sleep 3
+            mantener; listar_network
+            ;;
+        eth:*:up)
+            local dev="${accion#eth:}"; dev="${dev%:up}"
+            timeout 10 nmcli device connect "$dev" >/dev/null 2>&1
+            mantener; volver; listar_netdev_eth "$dev"
+            ;;
+        eth:*:down)
+            local dev="${accion#eth:}"; dev="${dev%:down}"
+            timeout 10 nmcli device disconnect "$dev" >/dev/null 2>&1
+            mantener; volver; listar_netdev_eth "$dev"
+            ;;
+        wifi:*:disconnect)
+            local ssid="${accion#wifi:}"; ssid="${ssid%:disconnect}"
+            timeout 10 nmcli device disconnect "$(net_wifi_dev)" >/dev/null 2>&1
+            mantener; volver; listar_netdev_wifi "$ssid"
+            ;;
+        wifi:*:forget)
+            local ssid="${accion#wifi:}"; ssid="${ssid%:forget}"
+            nmcli connection delete "$ssid" >/dev/null 2>&1
+            mantener; volver; listar_netdev_wifi "$ssid"
+            ;;
+    esac
+}
+
+# ─── Acciones "disparar y listo" (agenda, clima, atajos, waybar, red) ───
+#
+# A diferencia de opt:*/btact:*/netact:*, acá no hay nada que reimprimir: se
+# corre el comando y se sale SIN imprimir ninguna fila más, que es la señal
+# estándar de rofi-script(5) para que rofi se cierre solo.
+#
+# act:network:connect:<ssid> lanza un proceso nuevo (y en el caso de una red sin
+# guardar y con contraseña, otro rofi -dmenu -password)
+# DESPUÉS de que este rofi se cerró solo (0 filas) — no se manda ninguna señal,
+# así que no es el patrón que rompió la Fase 5 (matar-y-lanzar en la misma
+# ejecución). esperar_cierre_rofi() evita la carrera de pidfile que sí tenía
+# networkmanager_dmenu (ver el comentario grande de la sección de Red, más
+# arriba): sin ella, el "rofi -dmenu -password" de acá abajo podía arrancar
+# mientras ESTE rofi todavía no soltó /run/user/$UID/rofi.pid.
+esperar_cierre_rofi() {
+    local intentos=0
+    while pgrep -x rofi >/dev/null 2>&1 && (( intentos < 40 )); do
+        sleep 0.05
+        intentos=$((intentos + 1))
+    done
+}
+
+ejecutar_accion() {
+    local id="$1"
+    case "$id" in
+        act:wallpapers:selector)
+            # La regla que hace bajar a ESTE menú al irse se prende acá, antes de lanzar:
+            # el menú se cierra apenas el script termina, así que después ya es tarde. La
+            # apaga el selector cuando el menú ya se fue. Es sincrónico a propósito y dura
+            # milisegundos (ver la cabecera por qué acá no se puede bloquear más que eso).
+            if [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then
+                hyprctl eval "if _G.rofi_fondos_anim then _G.rofi_fondos_anim:set_enabled(true) end" \
+                    >/dev/null 2>&1
+            fi
+            setsid systemd-cat -t fondos-selector fondos-selector --volver leaf:wallpapers \
+                >/dev/null 2>&1 &
+            disown 2>/dev/null
+            ;;
+        act:calendar:open)
+            xdg-open https://calendar.google.com >/dev/null 2>&1 &
+            disown 2>/dev/null
+            ;;
+        act:weather:open)
+            xdg-open 'https://www.google.com/search?q=clima' >/dev/null 2>&1 &
+            disown 2>/dev/null
+            ;;
+        act:network:connect:*)
+            local ssid="${id#act:network:connect:}"
+            (
+                esperar_cierre_rofi
+                if net_saved "$ssid"; then
+                    if nmcli connection up "$ssid" >/dev/null 2>&1; then
+                        notify-send -a Red "Conectado a ${ssid}" 2>/dev/null
+                    else
+                        notify-send -a Red -u critical "No se pudo conectar a ${ssid}" 2>/dev/null
+                    fi
+                else
+                    local sec
+                    sec=$(nmcli -t -f SECURITY,SSID device wifi list 2>/dev/null | \
+                        awk -F: -v s="$ssid" '$2==s{print $1; exit}')
+                    if [[ -z $sec || $sec == "--" ]]; then
+                        if nmcli device wifi connect "$ssid" >/dev/null 2>&1; then
+                            notify-send -a Red "Conectado a ${ssid}" 2>/dev/null
+                        else
+                            notify-send -a Red -u critical "No se pudo conectar a ${ssid}" 2>/dev/null
+                        fi
+                    else
+                        local pw
+                        # `env -u ROFI_OUTSIDE`: rofi exporta esa variable a los
+                        # scripts de modo que lanza y se niega a arrancar si la ve
+                        # ("Do not launch rofi from inside rofi.", por stderr, que
+                        # acá no se ve). Sin despojarla este prompt no abría nunca
+                        # — el `nmcli` de abajo quedaba con la contraseña vacía y
+                        # la conexión fallaba sin explicación.
+                        pw=$(env -u ROFI_OUTSIDE rofi -dmenu -password -p "Contraseña de ${ssid}")
+                        if [[ -n $pw ]]; then
+                            if nmcli device wifi connect "$ssid" password "$pw" >/dev/null 2>&1; then
+                                notify-send -a Red "Conectado a ${ssid}" 2>/dev/null
+                            else
+                                notify-send -a Red -u critical "Contraseña incorrecta o fallo al conectar a ${ssid}" 2>/dev/null
+                            fi
+                        fi
+                    fi
+                fi
+            ) >/dev/null 2>&1 &
+            disown 2>/dev/null
+            ;;
+        act:hyprbind:*)
+            # Se ejecuta la ACCIÓN del bind por su descripción, con el registro que arma
+            # hypr/cfg/binds.lua (`_G.ejecutar_bind`). No hay otra forma:
+            #   - `hyprctl binds` reporta `dispatcher: "__lua"` para todo bind de hl.bind(), y
+            #     ese símbolo no es invocable ni desde `dispatch` ni desde `eval`.
+            #   - `hl.dsp.send_shortcut` le manda la tecla a la VENTANA enfocada, no al matcher
+            #     de binds: Mod+2 por esa vía no cambia de workspace (probado).
+            # `hyprctl eval` corre en el estado Lua de la config, así que la tabla es alcanzable.
+            #
+            # El `sleep` no es cosmético: casi todos los binds son el toggle
+            # `pgrep -x rofi && pkill -x rofi || <abrir>`. Si la acción corre mientras ESTE
+            # rofi sigue vivo, el toggle se lo cobra con él y el destino nunca se abre. Se
+            # espera a que esta ventana cierre —el script termina sin imprimir filas justo
+            # después— y recién ahí se ejecuta.
+            #
+            # La descripción va entre comillas simples de Lua: se escapan `\` y `'`.
+            local desc="${id#act:hyprbind:}"
+            desc=${desc//\\/\\\\}
+            desc=${desc//\'/\\\'}
+            ( sleep 0.25
+              hyprctl eval "_G.ejecutar_bind('${desc}')" >/dev/null 2>&1 ) &
+            disown 2>/dev/null
+            ;;
+        act:waybar:*)
+            eval "${id#act:waybar:}" >/dev/null 2>&1 &
+            disown 2>/dev/null
+            ;;
+    esac
+}
+
+listar_energy() {
+    local activo
+    activo=$(powerprofilesctl get 2>/dev/null || echo "")
+    local perfil pretty_es
+    for perfil in performance balanced power-saver; do
+        case $perfil in
+            performance) pretty_es="Performance" ;;
+            balanced) pretty_es="Balanced" ;;
+            power-saver) pretty_es="Power saver" ;;
+        esac
+        if [[ $perfil == "$activo" ]]; then
+            fila "$pretty_es" "activo" "cs-power" "opt:energy:${perfil}" 1
+        else
+            fila "$pretty_es" "$perfil" "cs-power" "opt:energy:${perfil}"
+        fi
+    done
+}
+
+listar_toggles() {
+    local on=""
+    [[ $(nightlight status 2>/dev/null) == "on" ]] && on=1
+    if [[ -n $on ]]; then
+        fila "Night light" "activado" "cs-nightlight" "opt:toggle:nightlight" 1
+    else
+        fila "Night light" "desactivado" "cs-nightlight" "opt:toggle:nightlight"
+    fi
+}
+
+listar_fonts_ambitos() {
+    local act_sis act_term
+    act_sis=$(font-set --actual sistema 2>/dev/null || echo "?")
+    act_term=$(font-set --actual terminal 2>/dev/null || echo "?")
+    fila "Sistema" "${act_sis} · proporcional, apps GTK y Qt" "preferences-desktop-font" "leaf:fonts:sistema"
+    fila "Terminal" "${act_term} · monoespaciada, kitty" "utilities-terminal" "leaf:fonts:terminal"
+}
+
+listar_fonts() {
+    local ambito="$1" activa
+    activa=$(font-set --actual "$ambito" 2>/dev/null || echo "")
+    while IFS=$'\t' read -r fam sub; do
+        [[ -z $fam ]] && continue
+        if [[ $fam == "$activa" ]]; then
+            fila "$fam" "${sub} · activa" "preferences-desktop-font" "opt:font:${ambito}:${fam}" 1
+        else
+            fila "$fam" "$sub" "preferences-desktop-font" "opt:font:${ambito}:${fam}"
+        fi
+    done < <(font-set --listar "$ambito" 2>/dev/null)
+}
+
+# ─── Fondos de pantalla (absorbidos de wallpapers para evitar relevos de proceso) ───
+
+find_prune=( -not -path '*/.*/*' -not -path '*/Screenshots/*' -not -path '*/Fastfetch/*' )
+find_img=( -type f '(' -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' -o -iname '*.gif' ')' )
+
+plural() {
+    local n="$1" sing="$2" plur="$3"
+    if [[ $n -eq 1 ]]; then printf '%d %s' "$n" "$sing"; else printf '%d %s' "$n" "$plur"; fi
+}
+
+icono_thumb() {
+    printf 'thumbnail://%s' "$1"
+}
+
+current_root() {
+    wallpaper-root-set --actual 2>/dev/null || printf '%s/Imágenes\n' "$HOME"
+}
+
+current_wallpaper() {
+    wallpaper-set --actual 2>/dev/null
+}
+
+falta_para() {
+    local horas="$1" ultimo restante h m
+    ultimo=$(stat -c %Y "$HOME/.local/state/wallpaper" 2>/dev/null) || return 1
+    [[ -z $ultimo ]] && return 1
+    restante=$(((ultimo + horas * 3600) - $(date +%s)))
+    if ((restante <= 0)); then
+        printf 'en el próximo tic'
+        return 0
+    fi
+    h=$((restante / 3600))
+    m=$(((restante % 3600) / 60))
+    if ((h == 0)); then
+        printf 'en ~%d min' "$m"
+    else
+        printf 'en ~%d h %d min' "$h" "$m"
+    fi
+}
+
+escanear_directorio() {
+    local base="$1" maxdepth="$2"
+    ESC_ORDEN=()
+    declare -gA ESC_CNT=() ESC_MUESTRA=()
+    ESC_SUELTAS=0
+    ESC_MUESTRA_SUELTA=""
+    local path rel sub
+    while IFS= read -r path; do
+        [[ -z $path ]] && continue
+        rel="${path#"$base"/}"
+        if [[ $rel == */* ]]; then
+            sub="${rel%%/*}"
+            if [[ -z ${ESC_CNT[$sub]:-} ]]; then
+                ESC_CNT[$sub]=0
+                ESC_MUESTRA[$sub]="$path"
+                ESC_ORDEN+=("$sub")
+            fi
+            ESC_CNT[$sub]=$((ESC_CNT[$sub] + 1))
+        else
+            ESC_SUELTAS=$((ESC_SUELTAS + 1))
+            [[ -z $ESC_MUESTRA_SUELTA ]] && ESC_MUESTRA_SUELTA="$path"
+        fi
+    done < <(find "$base" -mindepth 1 -maxdepth "$maxdepth" "${find_img[@]}" "${find_prune[@]}" 2>/dev/null | sort)
+}
+
+listar_directorio() {
+    local root; root=$(current_root)
+    local minimo=3
+
+    escanear_directorio "$root" 3
+    local subcarpetas=0 total=$ESC_SUELTAS d
+    for d in "${ESC_ORDEN[@]}"; do
+        subcarpetas=$((subcarpetas + 1))
+        total=$((total + ESC_CNT[$d]))
+    done
+
+    local muestra_root="$ESC_MUESTRA_SUELTA"
+    [[ ${#ESC_ORDEN[@]} -gt 0 ]] && muestra_root="${ESC_MUESTRA[${ESC_ORDEN[0]}]}"
+
+    local resumen
+    if [[ $total -eq 0 ]]; then
+        resumen="sin imágenes"
+    elif [[ $subcarpetas -eq 0 ]]; then
+        resumen="$(plural "$total" "imagen suelta" "imágenes sueltas")"
+    else
+        resumen="$(plural "$total" imagen imágenes) en $(plural "$subcarpetas" subcarpeta subcarpetas)"
+    fi
+
+    local icon_root="cs-backgrounds"
+    [[ -n $muestra_root ]] && icon_root="$(icono_thumb "$muestra_root")"
+    fila "Carpeta actual · $(pretty "${root##*/}")" "$root · $resumen" "$icon_root" "opt:wallpapers:root:${root}" 1
+
+    local -A vistas=( ["$root"]=1 )
+
+    local padre_dir="${root%/*}"
+    if [[ -n $padre_dir && $padre_dir != "$root" && -z ${vistas[$padre_dir]:-} ]]; then
+        vistas[$padre_dir]=1
+        fila "Subir un nivel…" "la carpeta que contiene a la actual" "folder-open" "opt:wallpapers:root:${padre_dir}"
+    fi
+
+    local path
+    for d in "${ESC_ORDEN[@]}"; do
+        [[ ${ESC_CNT[$d]} -ge $minimo ]] || continue
+        path="$root/$d"
+        [[ -n ${vistas[$path]:-} ]] && continue
+        vistas[$path]=1
+        fila "$(pretty "$d")" "$(plural "${ESC_CNT[$d]}" imagen imágenes) · dentro de la carpeta actual" \
+            "$(icono_thumb "${ESC_MUESTRA[$d]}")" "opt:wallpapers:root:${path}"
+    done
+
+    escanear_directorio "$HOME" 3
+    for d in "${ESC_ORDEN[@]}"; do
+        [[ ${ESC_CNT[$d]} -ge $minimo ]] || continue
+        path="$HOME/$d"
+        [[ -n ${vistas[$path]:-} ]] && continue
+        vistas[$path]=1
+        fila "$(pretty "$d")" "$(plural "${ESC_CNT[$d]}" imagen imágenes) · en tu carpeta personal" \
+            "$(icono_thumb "${ESC_MUESTRA[$d]}")" "opt:wallpapers:root:${path}"
+    done
+
+    local base
+    for base in "/mnt" "/run/media/${USER:-}"; do
+        [[ -d $base ]] || continue
+        while IFS= read -r path; do
+            [[ -z $path ]] && continue
+            [[ -n ${vistas[$path]:-} ]] && continue
+            vistas[$path]=1
+            fila "$(pretty "${path##*/}")" "$path · disco o montaje · no se explora solo" \
+                "drive-harddisk" "opt:wallpapers:root:${path}"
+        done < <(find "$base" -mindepth 1 -maxdepth 1 -type d -not -name '.*' 2>/dev/null | sort)
+    done
+}
+
+listar_duracion() {
+    local actual; actual=$(wallpaper-rotate-set --actual 2>/dev/null || echo off)
+    local opciones=( "off:Desactivado" "3:3 horas" "6:6 horas" "12:12 horas" )
+    local o valor texto sub activo icon falta
+    for o in "${opciones[@]}"; do
+        valor="${o%%:*}"
+        texto="${o#*:}"
+        activo=""
+        [[ $valor == "$actual" ]] && activo=1
+        if [[ $valor == off ]]; then
+            sub="el fondo solo cambia cuando lo elegís vos"
+            [[ -n $activo ]] && sub+=" · activo"
+            icon="preferences-system-time"
+        else
+            sub="un fondo al azar de la carpeta actual, cada $valor horas"
+            icon="alarm-timer"
+            if [[ -n $activo ]]; then
+                falta=$(falta_para "$valor")
+                sub="activo"
+                [[ -n $falta ]] && sub+=" · próximo cambio $falta"
+            fi
+        fi
+        fila "$texto" "$sub" "$icon" "opt:wallpapers:rot:${valor}" "$activo"
+    done
+}
+
+listar_wallpapers_top() {
+    local raiz; raiz=$(current_root)
+    fila "Selector" "elegir entre los fondos de ${raiz##*/} · recalcula los colores" \
+        "$(g F02E9)" "act:wallpapers:selector"
+    fila "Directorio" "en qué carpeta se buscan los fondos" "$(g F024B)" "leaf:wallpapers:dir"
+    fila "Duración" "cada cuántas horas cambia solo" "$(g F051B)" "leaf:wallpapers:dur"
+}
+
+# ─── Aplicar una hoja (opt:<leaf>:<valor...>) y decir qué lista reimprimir ───
+#
+# La lista reimpresa lleva su "Volver", igual que la que se estaba mirando: con
+# keep-selection rofi conserva la POSICIÓN absoluta, así que si la lista de después
+# tuviera una fila menos que la de antes, la selección caería sobre el ítem siguiente.
+
+aplicar_y_reimprimir() {
+    local id="$1" leaf valor
+    leaf="${id#opt:}"
+    case "$leaf" in
+        animation:*)
+            valor="${leaf#animation:}"
+            hypr-animation "$valor" >/dev/null 2>&1
+            mantener; volver; listar_animations
+            ;;
+        cursor:*)
+            valor="${leaf#cursor:}"
+            cursor-set "$valor" >/dev/null 2>&1
+            mantener; volver; listar_cursors
+            ;;
+        iconpack:*)
+            valor="${leaf#iconpack:}"
+            icon-set "$valor" >/dev/null 2>&1
+            mantener; volver; listar_iconpacks
+            ;;
+        theme:*)
+            valor="${leaf#theme:}"
+            theme-set "$valor" >/dev/null 2>&1
+            mantener; volver; listar_themes
+            ;;
+        shadow:*)
+            valor="${leaf#shadow:}"
+            hypr-window-shadow "$valor" >/dev/null 2>&1
+            mantener; volver; listar_shadows
+            ;;
+        audio:*)
+            valor="${leaf#audio:}"
+            local idx="${valor%%:*}" sink="${valor#*:}"
+            pactl move-sink-input "$idx" "$sink" >/dev/null 2>&1
+            mantener; volver; listar_audio
+            ;;
+        player:playpause)
+            playerctl --player=playerctld play-pause >/dev/null 2>&1
+            mantener; volver; listar_player
+            ;;
+        player:next)
+            playerctl --player=playerctld next >/dev/null 2>&1
+            mantener; volver; listar_player
+            ;;
+        player:previous)
+            playerctl --player=playerctld previous >/dev/null 2>&1
+            mantener; volver; listar_player
+            ;;
+        energy:*)
+            valor="${leaf#energy:}"
+            powerprofilesctl set "$valor" >/dev/null 2>&1
+            mantener; volver; listar_energy
+            ;;
+        toggle:nightlight)
+            nightlight toggle >/dev/null 2>&1
+            mantener; volver; listar_toggles
+            ;;
+        font:sistema:*)
+            valor="${leaf#font:sistema:}"
+            font-set sistema "$valor" >/dev/null 2>&1
+            mantener; volver; listar_fonts sistema
+            ;;
+        font:terminal:*)
+            valor="${leaf#font:terminal:}"
+            font-set terminal "$valor" >/dev/null 2>&1
+            mantener; volver; listar_fonts terminal
+            ;;
+        wallpapers:root:*)
+            valor="${leaf#wallpapers:root:}"
+            wallpaper-root-set "$valor" >/dev/null 2>&1
+            mantener; volver; listar_directorio
+            ;;
+        wallpapers:rot:*)
+            valor="${leaf#wallpapers:rot:}"
+            wallpaper-rotate-set "$valor" >/dev/null 2>&1
+            mantener; volver; listar_duracion
+            ;;
+    esac
+}
+
+# act:* son las hojas "disparar y listo" (agenda, clima, atajos, waybar) — se
+# resuelven ACÁ, antes de emitir delim/prompt/data, porque no hay nada más que
+# imprimir: correr el comando y salir sin filas es la señal de rofi-script(5) para
+# que rofi se cierre solo (ver ejecutar_accion(), arriba). Tiene que ir DESPUÉS de
+# que todas las funciones ya estén definidas (bash no hoistea) y ANTES de la
+# sección de dispatch, para no imprimir delim/prompt/data de más.
+if [[ $info == act:* ]]; then
+    ejecutar_accion "$info"
+    exit 0
+fi
+
+# ─── Dispatch principal ───
+
+# `opt:*` no es un nivel propio: se aplica la acción y se vuelve a dibujar la MISMA hoja.
+# `estado` es ese nivel lógico, y es lo que se manda en `data` y lo que usa padre().
+case "$info" in
+    opt:animation:*)     estado="leaf:animations" ;;
+    opt:cursor:*)        estado="leaf:cursors" ;;
+    opt:iconpack:*)      estado="leaf:icon-packs" ;;
+    opt:theme:*)         estado="leaf:themes" ;;
+    opt:shadow:*)        estado="leaf:shadows" ;;
+    opt:energy:*)        estado="leaf:energy" ;;
+    opt:toggle:*)        estado="leaf:toggles" ;;
+    opt:font:sistema:*)  estado="leaf:fonts:sistema" ;;
+    opt:font:terminal:*) estado="leaf:fonts:terminal" ;;
+    opt:audio:*)         estado="leaf:audio" ;;
+    opt:player:*)        estado="leaf:player" ;;
+    opt:wallpapers:root:*) estado="leaf:wallpapers:dir" ;;
+    opt:wallpapers:rot:*)  estado="leaf:wallpapers:dur" ;;
+    btdev:*)              estado="$info" ;;
+    btact:power|btact:scan) estado="leaf:bluetooth" ;;
+    btact:*)
+        # Mismo truco que en el bluetooth original: la MAC va al principio de lo
+        # que queda después de "btact:" (p. ej. "AA:BB:...:FF:connect").
+        estado="btdev:$(printf '%s' "${info#btact:}" | grep -oE '^[0-9A-Fa-f:]{17}' || true)"
+        [[ $estado == "btdev:" ]] && estado="leaf:bluetooth"
+        ;;
+    netdev:eth:*|netdev:wifi:*) estado="$info" ;;
+    netact:networking|netact:wifi_radio|netact:scan) estado="leaf:network" ;;
+    netact:eth:*)
+        estado="netdev:eth:$(printf '%s' "${info#netact:eth:}" | sed -E 's/:(up|down)$//')"
+        ;;
+    netact:wifi:*)
+        estado="netdev:wifi:$(printf '%s' "${info#netact:wifi:}" | sed -E 's/:(disconnect|forget)$//')"
+        ;;
+    *)                   estado="$info" ;;
+esac
+
+# El prompt dice dónde estás parado. Rofi lo mantiene entre invocaciones si no se
+# vuelve a mandar, así que se manda SIEMPRE: si no, al bajar a una hoja quedaba el
+# rótulo del nivel anterior.
+case "$estado" in
+    top)                 titulo="Sistema" ;;
+    cat:appearance)      titulo="Apariencia" ;;
+    cat:system)          titulo="Sistema" ;;
+    cat:multimedia)      titulo="Multimedia" ;;
+    cat:red)             titulo="Red" ;;
+    cat:utilidades)      titulo="Utilidades" ;;
+    cat:ventanas)        titulo="Ventanas" ;;
+    leaf:wallpapers)     titulo="Fondos de pantalla" ;;
+    leaf:wallpapers:dir) titulo="Directorio de fondos" ;;
+    leaf:wallpapers:dur) titulo="Duración del fondo" ;;
+    leaf:animations)     titulo="Animaciones" ;;
+    leaf:cursors)        titulo="Cursor" ;;
+    leaf:icon-packs)     titulo="Íconos" ;;
+    leaf:themes)         titulo="Temas" ;;
+    leaf:shadows)        titulo="Sombras de ventana" ;;
+    leaf:energy)         titulo="Energía" ;;
+    leaf:toggles)        titulo="Toggles" ;;
+    leaf:fonts)          titulo="Fuentes" ;;
+    leaf:fonts:sistema)  titulo="Fuente del sistema" ;;
+    leaf:fonts:terminal) titulo="Fuente de terminal" ;;
+    leaf:audio)          titulo="Audio por aplicación" ;;
+    leaf:player)         titulo="Reproductor" ;;
+    leaf:calendar)       titulo="Agenda" ;;
+    leaf:weather)        titulo="Clima" ;;
+    leaf:keybinds)       titulo="Atajos de teclado" ;;
+    leaf:waybar)         titulo="Waybar: acciones de mouse" ;;
+    leaf:bluetooth)      titulo="Bluetooth" ;;
+    btdev:*)             titulo="Dispositivo" ;;
+    leaf:network)        titulo="Red" ;;
+    netdev:eth:*)        titulo="Conexión cableada" ;;
+    netdev:wifi:*)       titulo="Red WiFi" ;;
+    *)                   titulo="Sistema" ;;
+esac
+preludio "$titulo" "$estado"
+
+# ─── Scrollbar solo cuando hay algo para scrollear ───
+#
+# `listview.lines` en layout.rasi es 7: ese es el alto fijo de la tarjeta (ver
+# `fixed-height: true` ahí — necesario para que no salte de tamaño al escribir en
+# el buscador). El scrollbar de rofi se dibuja igual esté o no esté completa la
+# lista adentro de esas 7 líneas, y ahí es donde se veía "exagerado": una perilla
+# grande y fija en un menú de 6 categorías que nunca necesitó scrollear, del mismo
+# tamaño aproximado que en uno que sí scrollea. La solución no es un caso especial
+# para "top": es contar las filas reales de CADA estado y apagar el scrollbar
+# (`\0theme\x1f`, la única opción de mode que rofi sí aplica en caliente por
+# invocación, ver rofi-script(5)) cuando entran todas en las 7 líneas.
+#
+# Las filas van a un archivo temporal, no a una variable: esta salida lleva bytes
+# NUL de verdad (el primer campo de cada opción de modo, como `\0keep-selection`,
+# y el separador \x1f entre campos de fila) y `$(...)` trunca en el primer NUL —
+# se probó, y se pierden iconos y `info` de la mitad de las filas para abajo.
+filas_tmp=$(mktemp)
+trap 'rm -f "$filas_tmp"' EXIT
+
+{
+case "$info" in
+    top)
+        fila "Apariencia" "temas · fuentes · cursor · iconos · fondos · animaciones · sombras" "$(g F03D8)" "cat:appearance"
+        fila "Multimedia" "audio por app · reproductor" "$(g F075A)" "cat:multimedia"
+        fila "Red" "bluetooth · cable · WiFi" "$(g F05A9)" "cat:red"
+        fila "Sistema" "energía · paquetes · toggles" "$(g F0493)" "cat:system"
+        fila "Utilidades" "agenda · clima · notificaciones: Mod+N" "$(g F05B7)" "cat:utilidades"
+        fila "Ventanas" "atajos de teclado · waybar" "$(g F05AF)" "cat:ventanas"
+        # Fase 4 aplanaba las hojas acá mismo para que la búsqueda transversal las
+        # encontrara sin navegar. Se sacó (2026-09-09): el subtítulo de cada
+        # categoría ya trae esas mismas palabras clave (p. ej. "animaciones" está en
+        # el subtítulo de Apariencia, arriba), así que rofi las encuentra igual —
+        # sin la fila duplicada que aparecía suelta al scrollear el primer nivel.
+        # Costo real del cambio: llegar a una hoja por búsqueda ahora entra primero
+        # a su categoría (un Enter más), no directo a la hoja.
+        ;;
+    cat:appearance)
+        volver
+        fila "Fondos de pantalla" "selector · carpeta · duración" "$(g F02F9)" "leaf:wallpapers"
+        fila "Animaciones" "preset de animaciones de ventanas" "$(g F093A)" "leaf:animations"
+        fila "Fuentes" "interfaz y terminal" "$(g F0284)" "leaf:fonts"
+        fila "Paquete de íconos" "Tela circle · Papirus · breeze · Dracula" "$(g F0831)" "leaf:icon-packs"
+        fila "Cursor" "tema del puntero" "$(g F01BF)" "leaf:cursors"
+        fila "Temas" "paleta del sistema" "$(g F050E)" "leaf:themes"
+        fila "Sombras de ventana" "sombra negra o glow de color" "$(g F0637)" "leaf:shadows"
+        ;;
+    cat:system)
+        volver
+        fila "Energía" "perfil de energía" "$(g F140B)" "leaf:energy"
+        fila "Toggles" "night light" "$(g F0521)" "leaf:toggles"
+        ;;
+    cat:multimedia)
+        volver
+        fila "Audio por aplicación" "mandar cada programa a una salida distinta" "$(g F057E)" "leaf:audio"
+        fila "Reproductor" "playpause · siguiente · anterior, por MPRIS" "$(g F0960)" "leaf:player"
+        ;;
+    cat:red)
+        volver
+        fila "Bluetooth" "dispositivos, emparejar, conectar" "$(g F00AF)" "leaf:bluetooth"
+        fila "Red (cable y WiFi)" "redes cableadas y WiFi, contraseñas" "$(g F0318)" "leaf:network"
+        ;;
+    cat:utilidades)
+        volver
+        fila "Clima" "pronóstico de la semana" "$(g F0595)" "leaf:weather"
+        fila "Notificaciones" "atajo aparte: Mod+N (swaync-client -t)" "$(g F009A)" "cat:utilidades"
+        ;;
+    cat:ventanas)
+        volver
+        fila "Atajos de teclado" "lista buscable de binds de Hyprland" "$(g F030C)" "leaf:keybinds"
+        fila "Waybar" "qué hace cada click en la barra" "$(g F037D)" "leaf:waybar"
+        ;;
+    leaf:wallpapers) volver; listar_wallpapers_top ;;
+    leaf:wallpapers:dir) volver; listar_directorio ;;
+    leaf:wallpapers:dur) volver; listar_duracion ;;
+    leaf:animations) volver; listar_animations ;;
+    leaf:cursors) volver; listar_cursors ;;
+    leaf:icon-packs) volver; listar_iconpacks ;;
+    leaf:themes) volver; listar_themes ;;
+    leaf:shadows) volver; listar_shadows ;;
+    leaf:energy) volver; listar_energy ;;
+    leaf:toggles) volver; listar_toggles ;;
+    leaf:fonts) volver; listar_fonts_ambitos ;;
+    leaf:fonts:sistema) volver; listar_fonts sistema ;;
+    leaf:fonts:terminal) volver; listar_fonts terminal ;;
+    leaf:audio) volver; listar_audio ;;
+    leaf:player) volver; listar_player ;;
+    leaf:calendar) volver; listar_calendar ;;
+    leaf:weather) volver; listar_weather ;;
+    leaf:keybinds) volver; listar_keybinds ;;
+    leaf:waybar) volver; listar_waybar ;;
+    leaf:bluetooth) volver; listar_bt_top ;;
+    btdev:*) volver; listar_bt_dev "${info#btdev:}" ;;
+    btact:*)
+        aplicar_bluetooth "$info"
+        ;;
+    leaf:network) volver; listar_network ;;
+    netdev:eth:*) volver; listar_netdev_eth "${info#netdev:eth:}" ;;
+    netdev:wifi:*) volver; listar_netdev_wifi "${info#netdev:wifi:}" ;;
+    netact:*)
+        aplicar_netact "$info"
+        ;;
+    opt:*)
+        aplicar_y_reimprimir "$info"
+        ;;
+    *)
+        fila "Error" "estado desconocido: $info" "dialog-error" "top"
+        ;;
+esac
+} > "$filas_tmp"
+
+# Total de segmentos \x1e menos las opciones de modo (\0keep-selection, la única
+# que aparece mezclada acá adentro, vía mantener()) da las filas reales.
+# `listview { scrollbar: false; }` por \0theme se probó primero y no sirve: es una
+# propiedad ESTRUCTURAL (saca el widget del árbol), y el árbol de widgets se arma
+# una sola vez por proceso de rofi — el snippet de un estado posterior no lo trae
+# de vuelta (probado: top con 6 categorías lo apagaba, y ni Apariencia ni
+# Animaciones, dos invocaciones después y con 8 y más de 7 filas reales, pudieron
+# reencenderlo). rofi-script(5) ya avisa el límite: el `theme` de mode option "es
+# solo para cambios chicos ... de widgets que se actualizan durante el render,
+# como el color de fila" — eso SÍ se puede tocar en cada invocación. Por eso acá
+# no se apaga el scrollbar: se hace invisible pintando la perilla del mismo color
+# que el riel (@background-alt, lo que ya usa `scrollbar.background-color` en
+# layout.rasi) cuando no hace falta scrollear, y se la devuelve a su color normal
+# (@accent-alt, el default de layout.rasi) cuando sí hace falta. El riel atenuado
+# queda de fondo en los dos casos — es el mismo rastro sutil en toda la tarjeta,
+# nunca un elemento que aparece y desaparece.
+total_segmentos=$(grep -Pao '\x1e' "$filas_tmp" 2>/dev/null | wc -l)
+opciones_modo=$(grep -Pac '\x00keep-selection' "$filas_tmp" 2>/dev/null)
+filas_reales=$(( total_segmentos - opciones_modo ))
+if (( filas_reales <= 6 )); then
+    printf '\0theme\x1fscrollbar { handle-color: @background-alt; }\x1e'
+else
+    printf '\0theme\x1fscrollbar { handle-color: @accent-alt; }\x1e'
+fi
+
+cat "$filas_tmp"

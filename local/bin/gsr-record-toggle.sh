@@ -29,7 +29,7 @@ MON="${MON:-DP-3}"
 mkdir -p "$OUTDIR"
 OUT="$OUTDIR/$(date +%Y-%m-%d_%H-%M-%S).mp4"
 
-# Arranca en segundo plano, totalmente desacoplado de niri.
+# Arranca en segundo plano, totalmente desacoplado del compositor.
 setsid gpu-screen-recorder -w "$MON" -f 60 -a default_output \
     -k hevc -q very_high -c mp4 -o "$OUT" >/dev/null 2>&1 &
 echo $! > "$PIDFILE"

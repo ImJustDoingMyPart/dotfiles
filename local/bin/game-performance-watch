@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""game-performance-watch — sostiene el perfil de energía `performance` mientras haya un
+juego de Steam corriendo, sin tener que ponerle el parámetro de lanzamiento a cada juego.
+
+`game-performance` (de cachyos-settings) hace dos cosas: toma un hold de
+`performance` con `powerprofilesctl launch` y agrega un `systemd-inhibit`. La segunda
+mitad ya la cubre el script `jugar`. Esta la primera, pero disparada sola.
+
+El truco es que Steam antepone su propio envoltorio a TODO juego que lanza, nativo o por
+Proton:
+
+    .../ubuntu12_32/reaper SteamLaunch AppId=1229490 -- ...
+
+así que alcanza con mirar si existe algún proceso con `SteamLaunch\\0AppId=` en su
+cmdline. Eso cubre la biblioteca entera sin tocar las 138 entradas de CompatToolMapping
+ni los parámetros de lanzamiento. Lo que NO cubre es lo que no se lanza desde Steam
+(Lutris, un binario nativo a mano): ahí sigue estando `game-performance` a mano.
+
+Se sostiene el perfil con `powerprofilesctl launch ... -- sleep infinity` y no con
+`set performance`, por dos razones verificadas en esta máquina:
+
+  - `launch` usa la API de holds de power-profiles-daemon, que apila con otros holds.
+    `set` es global y pisa: habría que recordar a qué perfil volver, y dos cosas que
+    hagan `set` se pisan entre sí sin enterarse.
+  - El hold está atado a la conexión DBus del cliente, así que se libera aunque el
+    proceso muera de SIGKILL. Comprobado: con el launch vivo, `powerprofilesctl
+    list-holds` mostraba el hold y el perfil era `performance`; tras matarlo a lo bruto,
+    la lista quedó vacía y el perfil volvió solo a `balanced`. O sea que este daemon no
+    puede dejar la máquina clavada en `performance` ni cayéndose mal.
+"""
+
+import fcntl
+import os
+import signal
+import subprocess
+import sys
+import time
+
+MARCADOR = b"SteamLaunch\x00AppId="
+INTERVALO_S = 2
+RAZON = "game-performance-watch: juego de Steam en curso"
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+
+
+def log(msg):
+    print("game-performance-watch: %s" % msg, file=sys.stderr, flush=True)
+
+
+def hay_juego():
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open("/proc/%s/cmdline" % pid, "rb") as fh:
+                if MARCADOR in fh.read():
+                    return True
+        except OSError:
+            continue          # el proceso se fue entre el listdir y el open
+    return False
+
+
+def tomar_hold():
+    try:
+        return subprocess.Popen(
+            ["powerprofilesctl", "launch", "-p", "performance", "-r", RAZON,
+             "--", "sleep", "infinity"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as e:
+        log("no se pudo tomar el hold: %s" % e)
+        return None
+
+
+def soltar_hold(proc):
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=5)
+
+
+def main():
+    lock = open(os.path.join(RUNTIME, "game-performance-watch.lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        log("ya hay otra instancia vigilando; no arranco una segunda")
+        return 0
+
+    hold = None
+
+    def salir(*_):
+        if hold is not None:
+            soltar_hold(hold)
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, salir)
+    signal.signal(signal.SIGINT, salir)
+
+    log("vigilando juegos de Steam cada %ds" % INTERVALO_S)
+    try:
+        while True:
+            jugando = hay_juego()
+
+            # El hold puede haberse muerto por su cuenta —un reinicio de
+            # power-profiles-daemon se lleva puesta la conexión— y entonces hay que
+            # rehacerlo aunque el juego no haya cambiado de estado.
+            if hold is not None and hold.poll() is not None:
+                log("el hold se cayó solo; lo rehago si sigue habiendo juego")
+                hold = None
+
+            if jugando and hold is None:
+                hold = tomar_hold()
+                if hold is not None:
+                    log("juego detectado → perfil performance sostenido")
+            elif not jugando and hold is not None:
+                soltar_hold(hold)
+                hold = None
+                log("no quedan juegos → perfil liberado")
+
+            time.sleep(INTERVALO_S)
+    finally:
+        if hold is not None:
+            soltar_hold(hold)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

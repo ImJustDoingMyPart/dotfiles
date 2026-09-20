@@ -1,0 +1,68 @@
+/* Template de matugen -> ~/.config/themes/matugen/rofi.rasi
+ *
+ * SOLO colores, en un bloque global `* { }`. La forma vive en
+ * ~/.config/rofi/layout.rasi y referencia estos nombres con @nombre.
+ *
+ * Roles M3, mismo criterio que bar.css y walker.css: la escalera
+ * surface_container_low/container/container_high en vez de lighter()/darker()
+ * (que .rasi no tiene).
+ *
+ * CUIDADO al editar: matugen no distingue comentarios, un placeholder de
+ * ejemplo entre comillas dentro de un bloque de comentario se intenta
+ * renderizar igual y rompe el archivo entero.
+ *
+ * accent-soft es el acento con alfa 0x40 (25%), el mismo tinte de fila elegida
+ * que usa walker. Se genera acá con el alfa YA PEGADO porque rofi no sabe
+ * componer alfa sobre una referencia: `@accent / 25%` no parsea (una referencia
+ * no se puede combinar con otro token).
+ *
+ * scrollbar-gradient: mismo problema de referencia-en-stop que accent-soft, otra
+ * variante. En swaync el degradé (accent_bg_color -> accent_alt_bg_color) pinta el
+ * "highlight" — la porción YA RECORRIDA del trough, tipo barra de progreso — mientras
+ * el trough sin recorrer queda mudo y la perilla es un color sólido (accent_alt_bg_color
+ * a secas, sin degradé). El scrollbar de rofi no tiene ese tercer elemento ("cuánto se
+ * recorrió"): es riel + handle nomás, sin barra de relleno. Con el riel entero a
+ * degradé pleno (intento previo) quedaba invertido — vivo donde swaync lo tiene mudo,
+ * mudo donde swaync lo tiene vivo (el handle, ver layout.rasi). Se resuelve pintando el
+ * riel con el MISMO degradé pero atenuado (alfa 0x30, ~19%): reemplaza al trough mudo
+ * de swaync sin perder que venga de los colores de matugen, y el handle sólido
+ * (accent-alt, mismo color que la perilla de swaync) es lo único vívido — igual que el
+ * original.
+ *
+ * border-gradient-h: mismo problema de referencia-en-stop, tercera variante. Los mismos
+ * colores que el focus-ring de las ventanas (primary -> tertiary), pero de izquierda a
+ * derecha y no a 45°: lo usan las tiras de arriba y abajo del borde, y cada tira calcula
+ * su degradé sobre su propia geometría (ver `marco` en layout.rasi).
+ *
+ * background lleva alfa D9 (~0,85) pegado al hex: el mismo 0,85 que @background en
+ * bar.css y que la banda del selector de fondos. Lo pinta UNA sola capa (mainbox, ver
+ * layout.rasi); todo lo de adentro va transparente, porque los alfas se apilan — tres
+ * capas al 0,95 dan 0,9999, o sea opaco.
+ *
+ * background-alt NO es otro fondo sino un velo claro encima de ese: on_surface al 7%
+ * (0x12). Si fuera surface_container_high con alfa propio, se sumaría al de mainbox y el
+ * inputbar quedaría opaco; como velo, el inputbar se lee más claro que la tarjeta sin
+ * tapar lo que hay detrás.
+ *
+ * No se usa el filtro `set_alpha` de matugen porque exige un formato CON canal alfa de
+ * entrada (`to_color` + rgba), y acá alcanza con el mismo truco de sufijo hex que
+ * accent-soft. El blur lo pone la layer-rule de Hyprland para "^rofi$" (`blur = true`,
+ * `ignore_alpha = 0.5`). Hyprland NO tiene un efecto `opacity` en `hl.layer_rule()` (ver
+ * wiki, Configuring/Layer-Rules): la transparencia de una capa la pone la capa misma con
+ * su propio color, nunca una regla del compositor.
+ */
+
+* {
+    background:      {{colors.surface_container_low.default.hex}}D9;
+    background-alt:  {{colors.on_surface.default.hex}}12;
+    foreground:      {{colors.on_surface.default.hex}};
+    foreground-alt:  {{colors.on_surface_variant.default.hex}};
+    accent:          {{colors.primary.default.hex}};
+    accent-alt:      {{colors.tertiary.default.hex}};
+    accent-soft:     {{colors.primary.default.hex}}40;
+    urgent:          {{colors.error.default.hex}};
+    urgent-fg:       {{colors.on_error.default.hex}};
+    border:          {{colors.outline_variant.default.hex}};
+    scrollbar-gradient: linear-gradient(to bottom, {{colors.primary.default.hex}}30, {{colors.tertiary.default.hex}}30);
+    border-gradient-h: linear-gradient(to right, {{colors.primary.default.hex}}, {{colors.tertiary.default.hex}});
+}

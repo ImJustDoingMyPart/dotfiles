@@ -31,8 +31,7 @@ set -euo pipefail
 ESTADO="$HOME/.local/state/wallpaper-transition"
 
 # Un override explícito gana siempre y NO se sortea nada: es la salida de emergencia para
-# volver al comportamiento viejo (`WALLPAPER_TRANSITION=fade wallpaper-set ...`) y la que usa
-# `wallpaper-outputs-watch`, que necesita `none` sí o sí.
+# volver al comportamiento viejo (`WALLPAPER_TRANSITION=fade wallpaper-set ...`).
 if [[ -n ${WALLPAPER_TRANSITION:-} && ${WALLPAPER_TRANSITION} != "sorteo" ]]; then
   printf '%s\n' --transition-type "$WALLPAPER_TRANSITION"
   exit 0

@@ -1,0 +1,96 @@
+/* Gruvbox Dark Medium — OSD de volumen y brillo (swayosd).
+ *
+ * Versión curada del template de matugen (~/.config/matugen/templates/swayosd.css):
+ * misma estructura y mismos comentarios, con los colores fijos de gruvbox tomados de su
+ * propio swaync.css y su bar.css. Si se toca la estructura allá, tocarla acá también.
+ *
+ * OSD de volumen y brillo (swayosd 0.3.1). `theme-set` lo symlinkea a
+ * ~/.config/swayosd/style.css, que es donde el server lo busca solo.
+ *
+ * ─── Por qué se ve así ───
+ *
+ * El default de swayosd es una píldora translúcida (border-radius 999px) que no se parece
+ * a nada más del escritorio. Este archivo lo alinea con EL TOAST DE SWAYNC, que es la
+ * superficie más parecida: también aparece solo, también es efímero, también se lee de un
+ * vistazo.
+ *
+ * De ahí se copian las cuatro decisiones que le dan su forma, y se usan LOS MISMOS roles
+ * de matugen para que los dos cambien juntos al cambiar el wallpaper:
+ *
+ *     el toast                              acá
+ *     fondo            surface_container    background
+ *     texto            on_surface           color de texto e íconos
+ *     borde            outline_variant      border
+ *     progress-color   primary              barra de progreso
+ *     border-size 1                         border 1px
+ *     border-radius 4                       border-radius 4px
+ *     font JetBrainsMono Nerd Font 11       ídem
+ *
+ * Sin placeholders dentro de comentarios: el motor de matugen no los distingue y un
+ * ejemplo comentado rompe el archivo entero.
+ *
+ * Los selectores son los del style.css que instala el paquete
+ * (/etc/xdg/swayosd/style.css); no se inventó ninguno.
+ */
+
+window#osd {
+  /* Opaco, no translúcido: el OSD aparece sobre cualquier cosa (un juego, un
+   * video a pantalla completa) y con alpha el porcentaje se vuelve ilegible justo cuando
+   * más se lo mira. */
+  background: #282828;
+  border: 1px solid #504945;
+  border-radius: 4px;
+}
+
+window#osd #container {
+  margin: 12px;
+}
+
+window#osd image,
+window#osd label {
+  color: #d4be98;
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 11pt;
+}
+
+window#osd progressbar:disabled,
+window#osd image:disabled {
+  opacity: 0.5;
+}
+
+window#osd progressbar,
+window#osd segmentedprogress {
+  min-height: 6px;
+  /* La barra sí conserva las puntas redondeadas: son 6 px de alto, con 4 px de radio se
+   * ve como un rectángulo mal cortado en vez de como una barra. */
+  border-radius: 999px;
+  background: transparent;
+  border: none;
+}
+
+window#osd trough,
+window#osd segment {
+  min-height: inherit;
+  border-radius: inherit;
+  border: none;
+  /* El canal vacío usa el mismo tono que el borde: es la misma función —marcar un límite
+   * sin competir con el contenido. */
+  background: #504945;
+}
+
+window#osd progress,
+window#osd segment.active {
+  min-height: inherit;
+  border-radius: inherit;
+  border: none;
+  /* El mismo rol que el toast usa para su barra de progreso. */
+  background: #83a598;
+}
+
+window#osd segment {
+  margin-left: 8px;
+}
+
+window#osd segment:first-child {
+  margin-left: 0;
+}

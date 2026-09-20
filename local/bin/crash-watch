@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# crash-watch — convierte un core dump en una notificación clickeable que abre una
+# sesión de Claude con el contexto del crash ya masticado.
+#
+# Idea tomada de omarchy-crash-watch (basecamp/omarchy, MIT). Lo que se robó no es el
+# código sino los cuatro reflejos defensivos, que son la parte con jugo:
+#
+#   1. Se espera a que vuelva el servidor de notificaciones antes de anunciar. Si lo que
+#      crasheó fue el shell, se llevó puesto org.freedesktop.Notifications y el toast se
+#      perdería — y el crash con menos chance de ser entregado es el que más vale la pena
+#      reportar.
+#   2. Los datos del crash viajan como argv DISCRETOS, nunca interpolados en una línea de
+#      shell: un proceso con nombre hostil no puede reparsearse como comando.
+#   3. Dedupe por programa, porque los crash loops dumpean en bucle. La ventana de dedupe
+#      SOLO arranca si el toast se entregó: si el servidor nunca apareció, el próximo
+#      crash del mismo programa merece otro intento.
+#   4. Se ignora a sí mismo, para no notificar sobre su propia maquinaria.
+#
+# El MESSAGE_ID está verificado contra el journal de esta máquina (systemd 261), no
+# copiado de una nota: `journalctl MESSAGE_ID=<id>` devuelve los dumps y todos traen
+# COREDUMP_PID.
+#
+# Los campos viajan de jq a bash en BASE64, uno por campo. Un path o un nombre de proceso
+# pueden traer espacios, tabs o saltos de línea; base64 es [A-Za-z0-9+/=] y nada más, así
+# que el split por espacios no puede romperse con datos hostiles.
+set -uo pipefail
+
+readonly COREDUMP_MSGID=fc2e22bc6ee647b6b90729ab34a250b1
+readonly DEDUPE_S=60
+readonly SERVER_WAIT_S=30
+readonly SELF_RE='^(crash-watch|crash-diagnose|journalctl|jq)$'
+
+declare -A last_ok=()
+
+log() { printf 'crash-watch: %s\n' "$*" >&2; }
+
+# Instancia única. Sin esto, cada instancia de más manda su PROPIA notificación por el
+# mismo crash — y si alguna se lanzó a mano con un entorno distinto, su clic puede no
+# hacer nada. Pasó: dos instancias huérfanas de una prueba manual sobrevivieron a su
+# `kill` (mataba el bash, no el `journalctl -f` del pipe) y un crash real dio tres toasts,
+# dos de ellos muertos. systemd mata el cgroup entero, así que el servicio no reincide;
+# el lock cubre los lanzamientos a mano.
+exec 9>"${XDG_RUNTIME_DIR:-/tmp}/crash-watch.lock"
+if ! flock -n 9; then
+  log "ya hay otra instancia escuchando; no arranco una segunda"
+  exit 0
+fi
+
+notif_server_up() {
+  # NameHasOwner NO dispara la activación por D-Bus: pregunta si YA hay alguien.
+  # (busctl --user status sí la dispararía, y entonces siempre diría que sí.)
+  busctl --user call org.freedesktop.DBus /org/freedesktop/DBus \
+         org.freedesktop.DBus NameHasOwner s org.freedesktop.Notifications 2>/dev/null |
+    grep -q 'b true'
+}
+
+wait_for_notif_server() {
+  local waited=0
+  until notif_server_up; do
+    (( waited >= SERVER_WAIT_S )) && return 1
+    sleep 1
+    waited=$(( waited + 1 ))
+  done
+  return 0
+}
+
+# Lanza el toast y, si alguien aprieta "Diagnosticar", el diagnóstico. Corre en subshell
+# propio porque notify-send -A implica --wait: bloquea hasta que la notificación se cierra
+# o se invoca la acción.
+announce() {
+  local comm=$1 pid=$2 exe=$3 sig=$4 chosen name
+  # El kernel trunca COMM a 15 caracteres, así que para MOSTRAR se prefiere el basename
+  # del ejecutable. El dedupe sigue usando COMM, que es el campo estable.
+  name=$comm
+  [[ -n $exe && $exe != "?" ]] && name=${exe##*/}
+  chosen=$(notify-send \
+    --app-name=crash-watch \
+    --urgency=critical \
+    --icon=dialog-error \
+    --action='default=Diagnosticar con Claude' \
+    "$name crasheó" \
+    "$sig - PID $pid"$'\n'"Clic para diagnosticar con Claude") || return 0
+  [[ $chosen == default ]] || return 0
+  if ! command -v crash-diagnose >/dev/null 2>&1; then
+    log "ERROR: crash-diagnose no está en el PATH; el clic no puede hacer nada"
+    return 0
+  fi
+  # stderr va al journal a propósito: un lanzador que falla en silencio es indistinguible
+  # de un clic que no hace nada, y eso es exactamente lo que hay que poder diagnosticar.
+  setsid crash-diagnose "$comm" "$pid" "$exe" "$sig" >/dev/null &
+}
+
+log "escuchando core dumps del uid $(id -u)"
+
+journalctl -f -n 0 -o json \
+  --output-fields=COREDUMP_COMM,COREDUMP_PID,COREDUMP_EXE,COREDUMP_SIGNAL_NAME,COREDUMP_UID \
+  MESSAGE_ID="$COREDUMP_MSGID" 2>/dev/null |
+while IFS= read -r line; do
+  read -ra B64 < <(
+    printf '%s' "$line" | jq -r '
+      [ (.COREDUMP_COMM        // "?"),
+        (.COREDUMP_PID         // "?"),
+        (.COREDUMP_EXE         // "?"),
+        (.COREDUMP_SIGNAL_NAME // "?"),
+        (.COREDUMP_UID         // "") ]
+      | map(tostring | @base64) | join(" ")' 2>/dev/null
+  )
+  (( ${#B64[@]} == 5 )) || continue
+
+  comm=$(base64 -d <<< "${B64[0]}")
+  pid=$(base64 -d <<< "${B64[1]}")
+  exe=$(base64 -d <<< "${B64[2]}")
+  sig=$(base64 -d <<< "${B64[3]}")
+  uid=$(base64 -d <<< "${B64[4]}")
+
+  [[ $uid == "$(id -u)" ]] || continue   # solo lo mío, no lo del sistema
+  [[ $comm =~ $SELF_RE ]]  && continue   # y no mi propia maquinaria
+
+  now=$(date +%s)
+  prev=${last_ok[$comm]:-0}
+  (( now - prev < DEDUPE_S )) && continue
+
+  if wait_for_notif_server; then
+    last_ok[$comm]=$now      # la ventana arranca SOLO si había a quién entregarle
+    announce "$comm" "$pid" "$exe" "$sig" &
+  else
+    log "sin servidor de notificaciones tras ${SERVER_WAIT_S}s; $comm no se anuncia"
+  fi
+done

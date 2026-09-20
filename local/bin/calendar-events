@@ -16,8 +16,16 @@ Salida: una línea por evento, campos separados por tabulación:
 
 Se cachea la descarga para no salir a la red cada vez que se abre el menú, que es varias
 veces por día y con la red de por medio se sentiría lento.
+
+Un modo más, para `agenda-notify` (los avisos de swaync):
+
+    calendar-events --json         los mismos eventos en JSON, con el inicio en ISO
+
+`--json` arranca a medianoche y no ahora: un evento de día entero empieza a las 00:00, y
+contando desde ahora desaparecería justo el día en que ocurre.
 """
 
+import json
 import os
 import pathlib
 import subprocess
@@ -30,6 +38,9 @@ CACHE = pathlib.Path.home() / ".cache" / "calendar-ics"
 CACHE_TTL = 15 * 60          # segundos
 DIAS_ADELANTE = 30
 MAX_EVENTOS = 25
+
+MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+            "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
 
 
 def descargar(url: str, destino: pathlib.Path) -> str:
@@ -176,15 +187,27 @@ def etiqueta(cuando: datetime, ahora: datetime, dia_entero: bool) -> str:
     elif dias < 7:
         cabeza = f"en {dias} días"
     else:
-        cabeza = cuando.strftime("%d/%m")
+        # Mismo formato que `custom/date` en la barra (`date '+%a %d %b'`, es_AR: "17 sep"),
+        # para que una fecha no se lea distinto según de qué módulo salga.
+        cabeza = f"{cuando.day:02d} {MESES_ES[cuando.month - 1][:3]}"
     return cabeza if dia_entero else f"{cabeza} {cuando.strftime('%H:%M')}"
 
 
-def main() -> int:
-    if not CONFIG.is_file():
-        return 0
+def fecha_larga(cuando: datetime, dia_entero: bool) -> str:
+    dias_es = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+    largo = (f"{dias_es[cuando.weekday()]} {cuando.day} de {MESES_ES[cuando.month - 1]}"
+             f" de {cuando.year}")
+    if not dia_entero:
+        largo += cuando.strftime("  ·  %H:%M")
+    return largo
 
-    ahora = datetime.now().astimezone()
+
+def recolectar(ahora: datetime, desde: datetime | None = None):
+    """Eventos de todos los calendarios configurados, ordenados y acotados a MAX_EVENTOS."""
+    if not CONFIG.is_file():
+        return []
+
+    desde = desde or ahora
     hasta = ahora + timedelta(days=DIAS_ADELANTE)
 
     todos = []
@@ -193,23 +216,35 @@ def main() -> int:
             continue
         ics = descargar(url, CACHE / f"cal{n}.ics")
         if ics:
-            todos.extend(eventos_de(ics, ahora, hasta))
+            todos.extend(eventos_de(ics, desde, hasta))
 
     todos.sort(key=lambda e: e[0])
+    return todos[:MAX_EVENTOS]
 
-    for cuando, resumen, lugar, dia_entero in todos[:MAX_EVENTOS]:
+
+def modo_json() -> int:
+    ahora = datetime.now().astimezone()
+    medianoche = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+    eventos = [
+        {"inicio": cuando.isoformat(), "dia_entero": dia_entero,
+         "resumen": resumen, "lugar": lugar}
+        for cuando, resumen, lugar, dia_entero in recolectar(ahora, medianoche)
+    ]
+    print(json.dumps(eventos, ensure_ascii=False))
+    return 0
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    if argv and argv[0] == "--json":
+        return modo_json()
+
+    ahora = datetime.now().astimezone()
+    for cuando, resumen, lugar, dia_entero in recolectar(ahora):
         # El primer campo lo muestra el panel de preview, así que va legible y en local,
         # no el ISO crudo con el offset ("2026-08-05T20:00+00:00" no le dice nada a nadie).
-        dias_es = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
-        meses_es = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
-                    "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-        largo = (f"{dias_es[cuando.weekday()]} {cuando.day} de {meses_es[cuando.month - 1]}"
-                 f" de {cuando.year}")
-        if not dia_entero:
-            largo += cuando.strftime("  ·  %H:%M")
-
         campos = [
-            largo,
+            fecha_larga(cuando, dia_entero),
             etiqueta(cuando, ahora, dia_entero),
             resumen.replace("\t", " "),
             lugar.replace("\t", " "),

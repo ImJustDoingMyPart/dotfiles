@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Generador de fecha para Waybar.
+
+Emite JSON con la fecha completa en español: '20 de septiembre'.
+Los eventos de agenda fueron purgados: viven en SwayNC (agenda-notify).
+"""
+
+import json
+import datetime
+import locale
+
+try:
+    locale.setlocale(locale.LC_TIME, "es_AR.UTF-8")
+except Exception:
+    pass
+
+now = datetime.datetime.now()
+meses_largo = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+dias_semana = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+
+text = f"{now.day} de {meses_largo[now.month - 1]}"
+
+dia_nombre = dias_semana[now.weekday()]
+mes_nombre = meses_largo[now.month - 1]
+fecha_completa = f"{dia_nombre}, {now.day} de {mes_nombre} de {now.year}"
+
+tooltip = f'<span weight="bold" size="10500" foreground="#ffb598">󰸗  {dia_nombre}</span>\n<span foreground="#f1dfd9">{now.day} de {mes_nombre} de {now.year}</span>'
+output = {"text": text, "tooltip": tooltip, "class": "date"}
+print(json.dumps(output, ensure_ascii=False))

@@ -1,0 +1,1 @@
+../../themes/gruvbox-dark-medium/hyprland.lua

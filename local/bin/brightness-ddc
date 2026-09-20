@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Brillo del monitor por DDC/CI, con OSD.
 #
-# Uso:  brightness-ddc raise|lower|<0-100>
+# Uso:  brightness-ddc get|raise|lower|<0-100>
 #
 # Por qué existe, en vez de usar `swayosd-client --brightness`: esa opción de swayosd va
 # contra brightnessctl, o sea contra /sys/class/backlight. En esta máquina NO HAY backlight
@@ -68,10 +68,19 @@ fi
 current=${vals% *}
 max=${vals#* }
 
+# `get` imprime el valor actual y no toca nada. Lo pide el slider de brillo de swaync, que
+# necesita un `cmd_getter` para dibujar la perilla donde corresponde al abrir el panel; sin
+# esto habría que duplicar acá afuera la resolución del bus i2c y su caché, que es la parte
+# no trivial de este script. Sale ANTES del case porque no es una forma de fijar el brillo.
+if [[ ${1:-} == get ]]; then
+  echo "$current"
+  exit 0
+fi
+
 case "${1:-}" in
   raise) new=$(( current + STEP )) ;;
   lower) new=$(( current - STEP )) ;;
-  ''|*[!0-9]*) echo "uso: brightness-ddc raise|lower|<0-$max>" >&2; exit 1 ;;
+  ''|*[!0-9]*) echo "uso: brightness-ddc get|raise|lower|<0-$max>" >&2; exit 1 ;;
   *)     new=$1 ;;
 esac
 
@@ -84,7 +93,11 @@ ddcutil setvcp "$VCP_BRIGHTNESS" "$new" --bus "$BUS" --noverify >/dev/null 2>&1
 
 # El OSD es solo dibujo: swayosd no tiene idea de que esto salió por i2c.
 # --custom-progress toma 0.0-1.0. `-sw` no existe acá; si el server no corre, falla y no importa.
-if command -v swayosd-client >/dev/null; then
+#
+# Si el panel de swaync está abierto, su propio slider de brillo ya muestra el nivel —
+# dibujar TAMBIÉN el OSD de swayosd es redundante (mismo criterio que volume-ctl para el
+# volumen, 2026-09-03). swaync-panel-open vive en ~/.local/bin.
+if command -v swayosd-client >/dev/null && ! swaync-panel-open; then
   swayosd-client \
     --custom-progress "$(awk -v n="$new" -v m="$max" 'BEGIN{printf "%.2f", n/m}')" \
     --custom-progress-text "${new}%" \

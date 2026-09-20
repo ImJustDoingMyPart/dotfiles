@@ -5,12 +5,11 @@
 #       wallpaper-root-set --actual     imprime la raíz vigente
 #       wallpaper-root-set --reset      vuelve al default (borra el estado)
 #
-# Por qué un archivo de estado y no una variable de entorno: elephant corre como
-# servicio systemd de usuario, así que una env var solo cambia con
-# `systemctl --user restart elephant`. El archivo lo relee el menú en cada apertura
-# —`Cache = false` en wallpapers.lua— y el cambio se ve al instante.
+# Por qué un archivo de estado y no una variable de entorno: el menú de rofi es un
+# proceso nuevo en cada apertura, así que relee el archivo solo y el cambio se ve al
+# instante sin reiniciar nada.
 #
-# Por qué un script y no una función Lua adentro del menú: así la raíz también se
+# Por qué un script aparte y no lógica adentro del menú: así la raíz también se
 # cambia desde la terminal y desde cualquier otro script, igual que `wallpaper-set`
 # y `theme-set`. El menú es una puerta más, no la única.
 
@@ -52,20 +51,11 @@ if [[ -z $dir || ! -d $dir ]]; then
   exit 1
 fi
 
-# Ruta absoluta y sin symlinks: el estado lo lee después otro proceso (el menú, que
-# corre desde el cwd de elephant), y una relativa apuntaría a cualquier lado.
+# Ruta absoluta y sin symlinks: el estado lo lee después otro proceso (el menú de
+# rofi), y una relativa apuntaría a cualquier lado.
 dir=$(realpath "$dir")
 
 mkdir -p "$(dirname "$STATE_FILE")"
 printf '%s\n' "$dir" > "$STATE_FILE"
-
-# Las miniaturas de la carpeta nueva, en segundo plano. Los menús también las piden solos
-# cuando ven que faltan, pero ahí ya se está mirando la lista; acá se adelanta al momento en
-# que se sabe qué carpeta se va a mirar, que es el único instante en que la espera no se ve.
-# El `flock -n` del script hace que dos llamadas seguidas no se pisen.
-if command -v wallpaper-thumbs >/dev/null; then
-	wallpaper-thumbs "$dir" >/dev/null 2>&1 &
-	disown
-fi
 
 echo "wallpaper-root-set: $dir"

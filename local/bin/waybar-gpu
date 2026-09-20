@@ -10,6 +10,11 @@
 # depende del orden de sondeo. El BDF del PCI, en cambio, es fijo.
 #
 # Salida JSON (return-type: json en config.jsonc): text, tooltip, class, percentage.
+#
+# Tooltip reducido a SOLO temperatura el 2026-08-25 (a pedido de Roberto, unificando el
+# criterio con los tooltips nuevos de waybar-cpu/waybar-mem): antes traía busy% y VRAM, que
+# ya están (busy%) o no están (VRAM) en la barra — se sacaron para que el hover diga una
+# sola cosa en los tres widgets de hardware.
 
 set -euo pipefail
 
@@ -24,16 +29,11 @@ hwmon=$(echo "$GPU_PCI"/hwmon/hwmon*)
 temp_mc=$(read_or "$hwmon/temp1_input" 0)   # temp1 = edge (temp2 = junction, temp3 = mem)
 temp=$((temp_mc / 1000))
 
-vram_used=$(read_or "$GPU_PCI/mem_info_vram_used" 0)
-vram_total=$(read_or "$GPU_PCI/mem_info_vram_total" 1)
-vram_used_mb=$((vram_used / 1024 / 1024))
-vram_total_mb=$((vram_total / 1024 / 1024))
-
 # Mismos umbrales que states de los otros módulos, para que el CSS sea uno solo.
 if   (( temp >= 90 )); then class="critical"
 elif (( temp >= 80 )); then class="warning"
 else                        class=""
 fi
 
-printf '{"text":"%s%%","percentage":%s,"class":"%s","tooltip":"GPU %s%%  ·  %s°C\\nVRAM %s / %s MiB"}\n' \
-  "$busy" "$busy" "$class" "$busy" "$temp" "$vram_used_mb" "$vram_total_mb"
+printf '{"text":"%s%%","percentage":%s,"class":"%s","tooltip":"GPU %s°C"}\n' \
+  "$busy" "$busy" "$class" "$temp"

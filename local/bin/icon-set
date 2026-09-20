@@ -22,8 +22,8 @@
 # variantes: se aplican tal cual, sin pasar por matugen.
 #
 # NO HAY ARCHIVO DE ESTADO PROPIO: el paquete activo se DERIVA del valor actual
-# de `gsettings ... icon-theme`, igual que niri-animation deriva el pack activo
-# leyendo el include en vez de duplicar el dato en otro archivo. Una fuente de
+# de `gsettings ... icon-theme`, igual que hypr-animation y hypr-window-shadow derivan el
+# activo del destino de su symlink en vez de duplicar el dato en otro archivo. Una fuente de
 # verdad menos que se pueda desincronizar entre el menú y el hook de wallpaper.
 
 set -euo pipefail
@@ -184,7 +184,7 @@ resolve_tela() {
 #
 # Correrlo SINCRÓNICO acá colgaría el cambio de wallpaper entero varios segundos
 # — exactamente el lag que no se quería. Se manda al fondo: para cuando termina,
-# el resto del tema (barra, niri, walker, mako…) ya se actualizó, y el color de
+# el resto del tema (barra, Hyprland, rofi, swaync…) ya se actualizó, y el color de
 # carpeta "alcanza" un instante después sin que se perciba una pausa. Es
 # fire-and-forget a propósito — no hay nada que esperar ni que reportar acá.
 apply_papirus_color() {

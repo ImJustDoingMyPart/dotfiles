@@ -6,20 +6,29 @@
  * ─── Por qué se ve así ───
  *
  * El default de swayosd es una píldora translúcida (border-radius 999px) que no se parece
- * a nada más del escritorio. Este archivo lo alinea con MAKO, que es la superficie más
- * parecida: también aparece solo, también es efímero, también se lee de un vistazo.
+ * a nada más del escritorio. Este archivo lo alinea con EL TOAST DE SWAYNC, que es la
+ * superficie más parecida: también aparece solo, también es efímero, también se lee de un
+ * vistazo.
  *
- * De mako se copian las cuatro decisiones que le dan su forma, y se usan LOS MISMOS roles
+ * De ahí se copian las cuatro decisiones que le dan su forma, y se usan LOS MISMOS roles
  * de matugen para que los dos cambien juntos al cambiar el wallpaper:
  *
- *     mako                                  acá
- *     background-color surface_container    background
- *     text-color       on_surface           color de texto e íconos
- *     border-color     outline_variant      border
- *     progress-color   primary              barra de progreso
- *     border-size 1                         border 1px
+ *     el toast                              acá
+ *     fondo            surface_container    background
+ *     texto            on_surface           color de texto e íconos
+ *     progreso         primary              arranque de la barra
  *     border-radius 4                       border-radius 4px
- *     font JetBrainsMono Nerd Font 11       ídem
+ *     font JetBrainsMono Nerd Font          ídem
+ *
+ * El BORDE no es el plano de 1px del toast (outline_variant): copia el de
+ * swaync — primary -> tertiary a 45°, la firma de "esto está enfocado" que ya
+ * llevan el borde de la ventana activa y el de `.control-center`, con el mismo
+ * ancho de 2px que usa esa regla para el mismo truco de degradé en dos capas (ver
+ * comentario en la regla de abajo: un ancho no entero antialiasea distinto por lado).
+ * El pedido explícito fue acercar el look de swayosd al de swaync, y esa firma es lo
+ * más reconocible de los dos: el borde entra a la lista de prestamos junto con la
+ * barra de progreso, que pasa de sólida a este mismo degradé (ver `window#osd
+ * progress` más abajo).
  *
  * Sin placeholders dentro de comentarios: el motor de matugen no los distingue y un
  * ejemplo comentado rompe el archivo entero.
@@ -29,11 +38,20 @@
  */
 
 window#osd {
-  /* Opaco como mako, no translúcido: el OSD aparece sobre cualquier cosa (un juego, un
-   * video a pantalla completa) y con alpha el porcentaje se vuelve ilegible justo cuando
-   * más se lo mira. */
-  background: {{colors.surface_container.default.hex}};
-  border: 1px solid {{colors.outline_variant.default.hex}};
+  /* Ya no 100% opaco — pedido explícito de sumarle transparencia. La razón
+   * original (con alpha el porcentaje se vuelve ilegible sobre un juego o un video a
+   * pantalla completa) seguía siendo válida, así que en vez de la píldora translúcida
+   * del default de swayosd esto es un compromiso chico: 92% de opacidad, apenas
+   * perceptible como transparencia pero sin arriesgar la lectura del número. El
+   * degradé del BORDE (la capa `border-box`, más abajo) se deja 100% opaco a
+   * propósito: es la firma visual del foco y esa no pierde intensidad. */
+  background:
+    linear-gradient(alpha({{colors.surface_container.default.hex}}, 0.92), alpha({{colors.surface_container.default.hex}}, 0.92)) padding-box,
+    linear-gradient(45deg, {{colors.primary.default.hex}}, {{colors.tertiary.default.hex}}) border-box;
+  /* 2px, no 1.5px: un ancho de borde no entero antialiasea distinto en cada lado —
+   * ese era el "desnivelado". 2px es el mismo ancho que usa `.control-center` de
+   * swaync para este mismo truco de degradé en dos capas. */
+  border: 2px solid transparent;
   border-radius: 4px;
 }
 
@@ -68,9 +86,9 @@ window#osd segment {
   min-height: inherit;
   border-radius: inherit;
   border: none;
-  /* El canal vacío usa el mismo tono que el borde: es la misma función —marcar un límite
-   * sin competir con el contenido. */
-  background: {{colors.outline_variant.default.hex}};
+  /* Atenuado con `alpha()`, como el trough de los sliders de swaync: el canal vacío
+   * tiene que leerse como límite discreto, no competir con el relleno. */
+  background: alpha({{colors.outline_variant.default.hex}}, 0.6);
 }
 
 window#osd progress,
@@ -78,8 +96,16 @@ window#osd segment.active {
   min-height: inherit;
   border-radius: inherit;
   border: none;
-  /* El mismo rol que mako usa para su barra de progreso. */
-  background: {{colors.primary.default.hex}};
+  /* Ya no es un color sólido: el mismo degradé primary -> tertiary que usan el relleno
+   * de los sliders de volumen/brillo de swaync y el borde de arriba. Sin `animation`
+   * a propósito — a diferencia del panel de swaync, que queda abierto y se beneficia
+   * de "respirar" en reposo, el OSD vive un par de segundos y se re-dibuja con cada
+   * tecla: la propia aparición YA es el movimiento, sumarle un pulso encima solo
+   * competiría con eso. El glow sí se copia (más sutil que el intento inicial de
+   * swaync, misma lección aprendida ahí: alfa alto sobre fondo oscuro lee "blob
+   * blanco", no "acento oscuro con brillo"). */
+  background-image: linear-gradient(to right, {{colors.primary.default.hex}}, {{colors.tertiary.default.hex}});
+  box-shadow: 0 0 4px 0 alpha({{colors.tertiary.default.hex}}, 0.35);
 }
 
 window#osd segment {

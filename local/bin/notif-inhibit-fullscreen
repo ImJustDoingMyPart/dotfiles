@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""notif-inhibit-fullscreen — calla las notificaciones mientras la ventana enfocada esté
+a pantalla completa.
+
+El porqué no es de gusto, es un bug del compositor. Cuando una capa de layer-shell
+aparece sobre una ventana a pantalla completa que tiene el puntero enganchado
+(pointer-constraint), Hyprland suelta el enganche y mueve el cursor. El cursor se va
+libre por la pantalla y, cuando el cliente lo recupera, todo el desplazamiento acumulado
+le llega de golpe como un solo delta de mouse: en un juego, la mira pega un tirón
+violento hacia un costado.
+
+Medido en esta máquina con Ultrakill sobre Hyprland 0.56.2 (commit efb5099): después de
+un `openlayer>>swaync-notification-window` hubo más de diez episodios en 35 s, con el
+puntero suelto entre 0,5 y 2,3 s y el cursor escapándose hasta (1919, 0) y (0, 0) antes
+de volver de un salto al centro. Sin cambio de foco de ventana y sin tecla de por medio,
+así que no era la pausa del juego.
+
+Upstream describe lo mismo en el issue #15877, contra este mismo commit, y pide una
+opción `cursor:no_warp_on_layer_release`. Esa opción NO existe en esta versión
+—verificado con `hyprctl getoption`—, así que no hay arreglo por config del compositor.
+Lo único que queda es no generar la capa.
+
+Se usa un INHIBIDOR de swaync y no el do-not-disturb porque los inhibidores se cuentan
+por APP_ID y conviven con el DND manual sin pisarlo (verificado: con el inhibidor puesto,
+`swaync-client -D` sigue devolviendo el valor que dejó el usuario).
+
+El disparador es "la ventana enfocada está a pantalla completa" y no "hay un juego":
+Hyprland no expone por IPC si una superficie tiene el puntero enganchado, pero el campo
+`fullscreen` sí está (0 = ninguna, 1 = maximizada, 2 = pantalla completa — comprobado en
+vivo con Brave en 1 y Ultrakill en 2).
+"""
+
+import fcntl
+import json
+import os
+import signal
+import socket
+import subprocess
+import sys
+
+APP_ID = "notif-inhibit-fullscreen"
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+
+# Un `activewindow` se reemite en cada cambio de TÍTULO, no solo al cambiar de ventana, y
+# una terminal con título dinámico lo dispara varias veces por segundo. Consultar el
+# estado en cada uno sería gratis en corrección pero caro en despertar al compositor, así
+# que solo se reconsulta cuando el evento puede cambiar de verdad el estado.
+EVENTOS = ("activewindow>>", "fullscreen>>", "closewindow>>", "openwindow>>",
+           "workspace>>", "focusedmon>>", "monitorremoved>>", "monitoradded>>")
+
+
+def log(msg):
+    print("notif-inhibit-fullscreen: %s" % msg, file=sys.stderr, flush=True)
+
+
+def sock_path(nombre):
+    sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    if not sig:
+        log("falta HYPRLAND_INSTANCE_SIGNATURE; ¿corre fuera de la sesión de Hyprland?")
+        sys.exit(1)
+    return os.path.join(RUNTIME, "hypr", sig, nombre)
+
+
+def consultar(cmd):
+    """Pregunta al socket de control. Se habla el protocolo directo en vez de invocar
+    `hyprctl` para no pagar un fork por evento."""
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.connect(sock_path(".socket.sock"))
+        s.send(cmd.encode())
+        buf = b""
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+        return buf.decode("utf-8", "replace")
+    finally:
+        s.close()
+
+
+def hay_pantalla_completa():
+    try:
+        datos = json.loads(consultar("j/activewindow"))
+    except (OSError, ValueError):
+        return None          # no se pudo saber: se deja el estado como está
+    if not isinstance(datos, dict) or not datos:
+        return False         # sin ventana enfocada
+    return datos.get("fullscreen", 0) >= 2
+
+
+def inhibidor(poner):
+    flag = "-Ia" if poner else "-Ir"
+    try:
+        subprocess.run(["swaync-client", flag, APP_ID],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=5, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log("no se pudo %s el inhibidor: %s" % ("poner" if poner else "sacar", e))
+        return False
+    return True
+
+
+def main():
+    # Instancia única. Dos instancias no romperían nada —el inhibidor se cuenta por
+    # APP_ID y es el mismo—, pero la que sobre quedaría sosteniendo el suyo si la otra
+    # sale limpia, y las notificaciones se quedarían mudas sin motivo visible.
+    lock = open(os.path.join(RUNTIME, "notif-inhibit-fullscreen.lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        log("ya hay otra instancia escuchando; no arranco una segunda")
+        return 0
+
+    # Arrancar siempre desde limpio: si una instancia anterior murió a lo bruto, su
+    # inhibidor sigue puesto y nadie lo va a sacar.
+    inhibidor(False)
+    puesto = False
+
+    def salir(*_):
+        if puesto:
+            inhibidor(False)
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, salir)
+    signal.signal(signal.SIGINT, salir)
+
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(sock_path(".socket2.sock"))
+    log("escuchando eventos de Hyprland")
+
+    # Evaluar el estado de arranque: este servicio puede levantarse con una ventana YA a
+    # pantalla completa —un reinicio del servicio en medio de una partida— y entonces no
+    # llega ningún evento que lo cuente. Va DESPUÉS de conectarse al socket de eventos a
+    # propósito: al revés, un cambio ocurrido entre la consulta y la suscripción se
+    # perdería; así queda encolado en el buffer del socket.
+    if hay_pantalla_completa() and inhibidor(True):
+        puesto = True
+        log("arranque con pantalla completa ya enfocada → notificaciones inhibidas")
+
+    clase_previa = None
+    buf = b""
+    try:
+        while True:
+            datos = s.recv(8192)
+            if not datos:
+                log("el socket de eventos se cerró")
+                break
+            buf += datos
+            while b"\n" in buf:
+                linea, buf = buf.split(b"\n", 1)
+                ev = linea.decode("utf-8", "replace")
+                if not ev.startswith(EVENTOS):
+                    continue
+                # Filtrado barato del caso ruidoso: `activewindow>>CLASE,TÍTULO` que solo
+                # cambió de título no puede haber cambiado el estado de pantalla completa.
+                if ev.startswith("activewindow>>"):
+                    clase = ev[len("activewindow>>"):].split(",", 1)[0]
+                    if clase == clase_previa:
+                        continue
+                    clase_previa = clase
+
+                estado = hay_pantalla_completa()
+                if estado is None or estado == puesto:
+                    continue
+                if inhibidor(estado):
+                    puesto = estado
+                    log("pantalla completa %s → notificaciones %s"
+                        % ("enfocada" if estado else "abandonada",
+                           "inhibidas" if estado else "restablecidas"))
+    finally:
+        if puesto:
+            inhibidor(False)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

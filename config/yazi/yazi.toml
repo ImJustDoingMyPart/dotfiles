@@ -8,12 +8,22 @@
 trim = [
 	{ run = "video-trimmer %s1", desc = "Recortar (Video Trimmer)", for = "unix", orphan = true },
 ]
+# `open` (imv-dir vía xdg-open/mimeapps.list) ya cubre el caso normal: abre UNA
+# imagen y navega con flechas a las demás del directorio. Este `imv` (plano) es
+# para cuando seleccioné varias imágenes puntuales en Yazi y quiero verlas
+# como ese set exacto, no todo el directorio.
+# %* = todos los seleccionados, imv los abre como set navegable con next/prev.
+imv = [
+	{ run = "imv %*", desc = "Abrir con imv (selección)", for = "unix", orphan = true },
+]
 
 # `prepend_rules` se inserta ANTES de las reglas del preset y Yazi usa la primera
-# coincidencia, así que esta pisa a la de `{audio,video}/*` para los videos.
+# coincidencia, así que esta pisa a la de `{audio,video}/*` e `image/*` del preset.
 # Orden de `use` = orden del menú: el primero es el que abre con `o`/Enter, así que
-# `play` queda de default y Video Trimmer aparece como segunda opción en `O`.
+# `play`/`open` (imv-dir vía xdg-open) quedan de default y las alternativas
+# aparecen después en `O`.
 [open]
 prepend_rules = [
 	{ mime = "video/*", use = [ "play", "trim", "reveal" ] },
+	{ mime = "image/*", use = [ "open", "imv", "reveal" ] },
 ]

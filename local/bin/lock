@@ -10,8 +10,8 @@
 #      FIJA en ~/.config/hypr/hyprlock.conf porque la config es estática y el wallpaper
 #      cambia; el archivo lo escribe `wallpaper-set`. Si falta, hyprlock no avisa: muestra
 #      el color plano del tema y listo.
-#   2. No apilar lockers. niri usa ext-session-lock y dos clientes peleando por la sesión es
-#      una forma de quedarse afuera.
+#   2. No apilar lockers. El lock va por ext-session-lock y dos clientes peleando por la
+#      sesión es una forma de quedarse afuera.
 #
 # El resto (colores, reloj, fecha, campo de contraseña) sale de ~/.config/hypr/hyprlock.conf,
 # que trae los colores del tema activo con `source`. A diferencia de swaylock, acá el fondo
