@@ -15,6 +15,7 @@ case "$1" in
         else
             nmcli radio wifi on
         fi
+        swaync-refresh-toggles
         ;;
     wifi-status)
         [ "$(nmcli radio wifi)" = enabled ] && echo true || echo false
@@ -44,6 +45,8 @@ case "$1" in
         else
             nmcli connection down "$2"
         fi
+        # También cuando falla: si la conexión no sube, el botón quedaría marcado igual.
+        swaync-refresh-toggles
         ;;
     is-active)
         nmcli -t -f NAME connection show --active | grep -qFx "$2" && echo true || echo false

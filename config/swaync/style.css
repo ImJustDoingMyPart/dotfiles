@@ -131,8 +131,8 @@ scrollbar {
  * notificaciones flotantes (`.floating-notifications`): GTK4 dibuja la sombra exterior
  * SOLO por fuera del contorno (GskOutsetShadowNode), sin pintar nada debajo del fondo
  * translúcido (lo que evita que un degradé en `border-box` se vea a través del panel).
- * Se apilan las sombras en orden inverso (GTK4 pinta la última arriba): sombra difusa
- * grande, sombra difusa chica, mezcla intermedia a 2px spread, esquina tertiary y esquina
+ * Se apilan las sombras en orden inverso (GTK4 pinta la última arriba): glow
+ * primary, glow tertiary, mezcla intermedia a 2px spread, esquina tertiary y esquina
  * primary.
  *
  * El margen es CSS y no config a propósito: con `layer-shell-cover-screen` la capa ocupa
@@ -149,9 +149,10 @@ scrollbar {
   border: none;
   background: alpha(@window_bg_color, 0.85);
 
+  /* Glow en vez de sombra negra: el mismo de las ventanas (ver GLOW más abajo). */
   box-shadow:
-    0 19px 38px rgba(0, 0, 0, 0.3),
-    0 15px 12px rgba(0, 0, 0, 0.22),
+    -1px -1px 4px 1px alpha(@accent_bg_color, 0.5),
+    1px 1px 4px 1px alpha(@accent_alt_bg_color, 0.5),
     0 0 0 2px mix(@accent_bg_color, @accent_alt_bg_color, 0.5),
     1px 1px 0 1px @accent_alt_bg_color,
     -1px -1px 0 1px @accent_bg_color;
@@ -258,15 +259,38 @@ scrollbar {
  * se recorta (medido con un diff contra el fondo limpio: el degradado se apaga a los 6px).
  * Con la sombra grande del panel se veía un rectángulo gris de bordes duros. 2px de offset
  * y 4px de blur entran enteros: el techo es 6px, no un gusto. El anillo de 2px también
- * entra en ese margen. */
+ * entra en ese margen.
+ *
+ * GLOW. En lugar de sombra negra, el glow de las ventanas (`colorful-glow` de Hyprland:
+ * range 4, el degradé del borde al 50 %). GTK4 no tiene sombras en degradé, así que son
+ * dos: primary corrida 1px hacia arriba-izquierda y tertiary hacia abajo-derecha, que es
+ * como se reparte el degradé a 45°. Spread 1 para que la luz arranque donde termina el
+ * anillo y no quede tapada por él. Cuenta contra el techo: 1 de offset + 1 de spread + 4
+ * de blur = 6, entra justo. */
 .floating-notifications .notification-row .notification-background .notification {
   background: alpha(@window_bg_color, 0.85);
   border: none;
   box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.45),
+    -1px -1px 4px 1px alpha(@accent_bg_color, 0.5),
+    1px 1px 4px 1px alpha(@accent_alt_bg_color, 0.5),
     0 0 0 2px mix(@accent_bg_color, @accent_alt_bg_color, 0.5),
     1px 1px 0 1px @accent_alt_bg_color,
     -1px -1px 0 1px @accent_bg_color;
+}
+
+/* AIRE A LA IZQUIERDA PARA EL TIRÓN. El toast se descarta deslizándolo a la derecha; tirado
+ * a la IZQUIERDA rebota (overshoot del Adw.SwipeTracker que usa DismissibleWidget). El
+ * rebote tiene techo fijo: libadwaita 1.9 lo calcula como (1 - 1/(1 + a·d))/d con
+ * d = ancho × 0,1 (adjust_for_overshoot en adw-swipe-tracker.c), y como el progreso se
+ * multiplica por el ancho para correr la tarjeta, el desplazamiento tiende a 10px
+ * cualquiera sea el ancho. El ScrolledWindow de la ventana recorta en su borde, así que
+ * hace falta 10 + los 6 del anillo y el glow = 16px entre la tarjeta y ese borde; los 12px
+ * del paquete dejaban comer el glow y después el anillo.
+ *
+ * Solo a la izquierda y solo en el toast. `notification-window-width` sube de 300 a 304
+ * en config.json para que la tarjeta conserve su ancho. */
+.floating-notifications .notification-row .notification-background {
+  padding-left: 16px;
 }
 
 /* ── Rama 2: dentro del panel = el renglón de lista de walker ──
@@ -370,66 +394,16 @@ scrollbar {
 
 /* `critical` cambia el HUE, no la intensidad: el anillo tiene el mismo grosor que el de
  * cualquier toast, pero todo rojo en vez de bicolor. Lo que marca el error es el rojo
- * (anillo, título e ícono), no un borde más fuerte. */
+ * (anillo y título), no un borde más fuerte. */
 .floating-notifications .notification-row .notification-background .notification.critical {
   box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.45),
+    0 0 4px 2px alpha(@error_bg_color, 0.5),
     0 0 0 2px @error_bg_color;
 }
 
 .notification-row .notification-background .notification.critical .notification-default-action .notification-content .text-box .summary {
   color: @error_bg_color;
   font-weight: bold;
-}
-
-/* EL ÍCONO DE ERROR LO PONE LA HOJA, NO EL EMISOR.
- *
- * Las notificaciones propias mandan su ícono con `notify-send -i` (toggle-audio.sh, la TV,
- * los radares) y swaync lo dibuja en el nodo `.image`. Los errores no: llegan de programas
- * ajenos que no mandan nada, así que no hay `.image` que pintar y la tarjeta arranca en el
- * texto. Como el CSS de GTK4 no tiene `content`, el único lugar donde se puede meter una
- * imagen es un `background-image` del contenedor, con el hueco hecho a mano con padding.
- *
- * `-gtk-recolor(url(...))` y no un `url()` pelado: recolor repinta el SVG con el `color`
- * del nodo, así que el ícono sigue el @error_bg_color del tema activo igual que el borde y
- * el título, y la hoja se mantiene sin un solo hex. Un `url()` a secas dejaría el color
- * clavado dentro del archivo, fuera del esquema.
- *
- * `-gtk-icontheme("dialog-error-symbolic")` NO sirve acá, aunque GTK4 la acepta sin error
- * de parseo: no dibuja nada. Probado en pantalla contra `url()` y contra un
- * `linear-gradient` sobre el mismo nodo — esos dos sí pintan, así que el nodo y el
- * selector están bien y lo que falla es la función. Por eso el ícono es un archivo propio
- * (`~/.local/share/icons/alert-error.svg`) y no un nombre del tema de íconos.
- *
- * Los 48px de padding izquierdo son EXACTAMENTE lo que ocupa `.image` cuando la
- * notificación sí trae ícono: 40px de `--notification-icon-size` más los 4px de margen de
- * cada lado. Así el texto de un error arranca en la misma columna que el de una
- * notificación con ícono, que es la mitad de lo que hace que las dos se lean igual. Los
- * 32px de ícono y no 40 son para igualar la TINTA, no la caja: los PNG del juego propio
- * traen aire adentro de su lienzo y este SVG no, así que a igual caja el triángulo pesaría
- * más. Centrado en el hueco: (48 - 32) / 2 = 8.
- *
- * VA EN `.text-box` Y NO EN `.notification-content` a propósito, y con eso viene el único
- * caso raro de esta regla. Si un `critical` SÍ trae ícono propio, el triángulo no lo
- * reemplaza ni lo pisa: el ícono de la app se queda en su columna y el triángulo cae
- * después, contra el texto, leyéndose como una insignia de urgencia. (Con la regla puesta
- * en `.notification-content` el orden se invertía —triángulo, ícono, texto— y parecía un
- * error de layout.)
- *
- * NO SE PUEDE hacer que el triángulo aparezca SOLO cuando no hay ícono, y no por falta de
- * ganas. El árbol es `.notification-content > <caja> > <hueco> > .image`, con el `<hueco>`
- * SIEMPRE presente (mide 0 cuando está vacío) y la clase `.image` colgando de un
- * descendiente, así que ningún selector posicional distingue los dos casos: probado en
- * pantalla con sondas de color, `:first-child` y `:nth-child()` dan lo mismo con ícono y
- * sin él. Las dos formas de preguntarlo que sí servirían no existen en GTK4: `:has(.image)`
- * y `:empty` los rechaza el parser ("Unknown pseudoclass", en el journal de swaync). */
-.notification-row .notification-background .notification.critical .notification-default-action .notification-content .text-box {
-  background-image: -gtk-recolor(url("/home/anon/.local/share/icons/alert-error.svg"));
-  background-repeat: no-repeat;
-  background-position: 8px center;
-  background-size: 32px 32px;
-  padding-left: 48px;
-  color: @error_bg_color;
 }
 
 /* ── Botón de cerrar: NO SE DIBUJA ───────────────────────────────────────────
@@ -458,25 +432,44 @@ scrollbar {
 
 /* ── Acciones alternativas ────────────────────────────────────────────────────
  *
- * Los botones de acción de una notificación son el equivalente de `.keybind-label`: borde
- * de 1px, radio de 4px, sin relleno. Ahí walker usa `1px solid @theme_fg_color` a secas,
- * que en un botón del tamaño de estos queda demasiado marcado; se baja el borde al 35%. */
+ * Los botones de acción de una notificación (p. ej. "Ejecutar Cachy-Update" / "Cerrar")
+ * hablan el mismo idioma que las opciones del desplegable de audio del menubar
+ * (`.widget-menubar > revealer * button`): sin recuadro ni relleno, y el único estado es
+ * el color del texto, que pasa al acento en hover.
+ *
+ * El contenedor `.notification-action` también se apaga: la hoja del paquete le pinta
+ * `--noti-bg-hover` en hover con `.control-center .control-center-list .notification
+ * .notification-action:hover` (4 clases), así que acá van 5 para ganarle. */
 .notification-row .notification-background .notification .notification-alt-actions {
+  background: transparent;
+}
+
+.control-center .control-center-list .notification-row .notification .notification-action,
+.control-center .control-center-list .notification-row .notification .notification-action:hover {
   background: transparent;
 }
 
 .notification-row .notification-background .notification .notification-action > button {
   background: transparent;
   color: @theme_fg_color;
-  border: 1px solid alpha(@theme_fg_color, 0.35);
-  border-radius: var(--border-radius);
+  border: none;
   box-shadow: none;
-  transition: var(--hover-tranistion);
+  outline: none;
+  transition: color 100ms ease, transform 100ms ease;
 }
 
 .notification-row .notification-background .notification .notification-action > button:hover {
-  background: alpha(@accent_bg_color, 0.25);
-  border-color: @accent_bg_color;
+  background: transparent;
+  color: @accent_bg_color;
+}
+
+/* Feedback de press: mismo mecanismo que los íconos de arriba (`transition: none` al
+ * entrar a :active, resorte de 100ms al soltar), pero con 0.96 y no 0.92 — estos botones
+ * ocupan todo el ancho de la tarjeta y un 8% menos son ~20px, se lee como un salto y no
+ * como un hundirse. */
+.notification-row .notification-background .notification .notification-action > button:active {
+  transform: scale(0.96);
+  transition: none;
 }
 
 /* ── Respuesta en línea ───────────────────────────────────────────────────────
@@ -979,7 +972,7 @@ scrollbar {
   border: none;
   box-shadow: none;
   outline: none;
-  transition: color 100ms ease;
+  transition: color 100ms ease, transform 100ms ease;
 }
 
 .widget-menubar > revealer * button:hover {
@@ -995,6 +988,13 @@ scrollbar {
   border-top: none;
   box-shadow: none;
   color: @accent_alt_bg_color;
+}
+
+/* Press de las opciones del desplegable: mismo 0.96 que los botones de acción de las
+ * notificaciones (son igual de anchos). Después de `:checked` para no quedar pisado. */
+.widget-menubar > revealer * button:active {
+  transform: scale(0.96);
+  transition: none;
 }
 
 /* ── Los dos sliders (volumen y brillo) ───────────────────────────────────────
@@ -1023,31 +1023,95 @@ scrollbar {
   font-size: 23px;
 }
 
-/* Reproductor. La carátula pierde el círculo y toma las esquinas de 4px, como el resto de
- * las imágenes de la hoja. */
-.widget-mpris .widget-mpris-player {
-  border-radius: var(--border-radius);
+/* ─── Reproductor (MPRIS) ───
+ *
+ * Es el único control de reproducción del escritorio: la barra no tiene módulo de música.
+ * Se lee como una notificación más con controles: la misma tarjeta (tinte de texto al 0,06,
+ * radio 4) y la misma geometría, medida sobre una captura del panel y no deducida de las
+ * hojas (las notificaciones van dentro de grupos que suman márgenes propios):
+ *   - Horizontal: 14px de margen dejan los bordes en la misma columna que las tarjetas de
+ *     notificación.
+ *   - Vertical: entre dos notificaciones quedan 24px. Con el margen de la tarjeta en 0 y el
+ *     widget subido 7px (de los 4 de `.widget` a −3), quedan 24px tanto hasta el canal del
+ *     slider de brillo como hasta la primera notificación.
+ *
+ * La hoja del paquete lo dibuja como una ventana aparte (sombra de 10px, márgenes de
+ * 16/20) con la carátula desenfocada de fondo (`.mpris-background`), que al lado de la
+ * carátula nítida no agrega nada. Las dos cosas se apagan. */
+.control-center .widget-mpris {
+  margin-top: -3px;
 }
 
+.widget-mpris .widget-mpris-player {
+  margin: 0 14px;
+  border-radius: var(--border-radius);
+  box-shadow: none;
+  background: alpha(@theme_fg_color, 0.06);
+}
+
+.widget-mpris .widget-mpris-player .mpris-background {
+  opacity: 0;
+}
+
+/* 8px: los 4 de padding de `.notification-default-action` más los 4 de margen de `.image`,
+ * que es donde arranca el contenido de una notificación. */
+.widget-mpris .widget-mpris-player .mpris-overlay {
+  padding: 8px;
+  background-color: transparent;
+}
+
+/* La carátula pierde el círculo y la sombra, y toma las esquinas de 4px como el resto de
+ * las imágenes de la hoja. */
 .widget-mpris .widget-mpris-player .mpris-overlay .widget-mpris-album-art {
   border-radius: var(--border-radius);
+  box-shadow: none;
 }
 
+/* Título y artista con la jerarquía de las notificaciones: mismo tamaño que su resumen y
+ * su cuerpo, y el artista atenuado por opacidad, no por color. */
 .widget-mpris .widget-mpris-player .mpris-overlay .widget-mpris-title {
   font-size: var(--font-size-summary);
   font-weight: normal;
+  color: @theme_fg_color;
 }
 
 .widget-mpris .widget-mpris-player .mpris-overlay .widget-mpris-subtitle {
   font-size: var(--font-size-body);
+  color: @theme_fg_color;
   opacity: 0.5;
 }
 
-.widget-mpris .widget-mpris-player .mpris-overlay button:hover,
+/* Anterior / reproducir / siguiente: el idioma de la fila de íconos de arriba del panel
+ * (`.widget-menubar-container button`). Glifo en el color del texto, sin caja, y el hover
+ * se nota en el glifo que toma el acento — no en un fondo. Las flechas laterales, que
+ * aparecen con más de un reproductor abierto, van igual. */
+.widget-mpris .widget-mpris-player .mpris-overlay > box > button,
+.widget-mpris > box > button {
+  background: transparent;
+  color: @theme_fg_color;
+  border: none;
+  box-shadow: none;
+  border-radius: var(--border-radius);
+  transition: color 100ms ease;
+}
+
 .widget-mpris .widget-mpris-player .mpris-overlay > box > button:hover,
 .widget-mpris > box > button:hover {
-  background: alpha(@accent_bg_color, 0.25);
-  border-radius: var(--border-radius);
+  background: transparent;
+  color: @accent_bg_color;
+}
+
+.widget-mpris .widget-mpris-player .mpris-overlay > box > button:focus,
+.widget-mpris .widget-mpris-player .mpris-overlay > box > button:focus-visible,
+.widget-mpris > box > button:focus,
+.widget-mpris > box > button:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.widget-mpris > box > button:disabled {
+  background: transparent;
+  opacity: 0.2;
 }
 
 /* Los sliders de volumen y brillo: "línea de neón" — el trough casi no pinta, el color

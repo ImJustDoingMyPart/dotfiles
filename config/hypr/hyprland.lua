@@ -25,3 +25,6 @@ pcall(require, "cfg.shadow-style")
 
 -- 3. Preset de animación activo (HyDE en Lua)
 pcall(require, "cfg.active-animation")
+
+-- 4. Giro del borde al enfocar: va después del preset porque lo pisa (ver el archivo).
+require("cfg.border-angle")

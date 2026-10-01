@@ -99,6 +99,10 @@ theme-antigravity-apply >/dev/null 2>&1 || true
 theme-antigravity-ide-apply >/dev/null 2>&1 || true
 theme-obsidian-apply >/dev/null 2>&1 || true
 
+# Steam: copia la paleta como custom.css de la skin Adwaita-for-Steam. Steam la lee al
+# arrancar, así que entra en el próximo reinicio de Steam; no se lo reinicia desde acá.
+steam-skin colors >/dev/null 2>&1 || true
+
 # Los que NO se pueden recargar en caliente y necesitan reabrir el programa: las apps Qt
 # (qt5ct/qt6ct leen el esquema al arrancar) y yazi. Obsidian y Vesktop sí vigilan sus
 # archivos y toman el color solo.

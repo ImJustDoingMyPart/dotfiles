@@ -6,17 +6,17 @@
 # Por qué existe, en vez de usar `swayosd-client --brightness`: esa opción de swayosd va
 # contra brightnessctl, o sea contra /sys/class/backlight. En esta máquina NO HAY backlight
 # (es un desktop; `brightnessctl --list` solo devuelve LEDs de teclado y joystick). El brillo
-# del LG solo se toca por DDC/CI sobre i2c. Así que acá se separan las dos mitades:
+# del monitor solo se toca por DDC/CI sobre i2c. Así que acá se separan las dos mitades:
 # ddcutil cambia el valor, y swayosd solo DIBUJA el OSD con --custom-progress.
 #
 # El TV por HDMI no responde DDC/CI ("I2C slave address x37 is unresponsive"), así que esto
-# es siempre sobre el LG de DP-3.
+# es siempre sobre el monitor de DP-3.
 
 set -euo pipefail
 
 STEP="${BRIGHTNESS_STEP:-5}"
 BUS_CACHE="$HOME/.local/state/ddc-bus"
-VCP_BRIGHTNESS=10   # 0x10, confirmado en `ddcutil capabilities` del LG
+VCP_BRIGHTNESS=10   # 0x10, confirmado en `ddcutil capabilities` del KTC
 
 # ─── Resolver el bus i2c ───
 # ddcutil es 12x más rápido con --bus que con --display: 0,12s contra 1,58s, porque
@@ -48,7 +48,7 @@ get_bus() {
 BUS=$(get_bus) || { echo "brightness-ddc: no encuentro un monitor con DDC/CI" >&2; exit 1; }
 
 # --brief da "VCP 10 C <actual> <max>"; se piden los dos porque el máximo no es
-# necesariamente 100 en todos los monitores (en el LG sí, pero no se asume).
+# necesariamente 100 en todos los monitores (en el KTC sí, pero no se asume).
 read_brightness() {
   ddcutil getvcp "$VCP_BRIGHTNESS" --bus "$1" --brief 2>/dev/null | awk '/^VCP/{print $4, $5}'
 }
@@ -84,7 +84,7 @@ case "${1:-}" in
   *)     new=$1 ;;
 esac
 
-# Clamp. El mínimo es 0 y no 1: el LG a 0 sigue mostrando imagen, no se apaga.
+# Clamp. El mínimo es 0, el piso del rango del VCP.
 (( new > max )) && new=$max
 (( new < 0 ))   && new=0
 
@@ -97,11 +97,18 @@ ddcutil setvcp "$VCP_BRIGHTNESS" "$new" --bus "$BUS" --noverify >/dev/null 2>&1
 # Si el panel de swaync está abierto, su propio slider de brillo ya muestra el nivel —
 # dibujar TAMBIÉN el OSD de swayosd es redundante (mismo criterio que volume-ctl para el
 # volumen, 2026-09-03). swaync-panel-open vive en ~/.local/bin.
+#
+# Tiene que verse igual que el OSD de volumen, que dibuja swayosd solo:
+# - Sin --custom-progress-text: el de volumen no muestra el porcentaje (show_percentage
+#   viene apagado), y con el texto la tarjeta se ensanchaba y la barra quedaba más corta.
+# - El ícono es el display-brightness-symbolic QUE TRAE swayosd (data/icons del repo,
+#   v0.3.2), el mismo dibujo que sus íconos de volumen. Con el nombre original ganaba el de
+#   Papirus, que tiene prioridad sobre los íconos embebidos en el binario; por eso va copiado a
+#   ~/.local/share/icons/hicolor/scalable/status/ con un nombre que Papirus no tiene.
 if command -v swayosd-client >/dev/null && ! swaync-panel-open; then
   swayosd-client \
     --custom-progress "$(awk -v n="$new" -v m="$max" 'BEGIN{printf "%.2f", n/m}')" \
-    --custom-progress-text "${new}%" \
-    --custom-icon display-brightness-symbolic >/dev/null 2>&1 || true
+    --custom-icon osd-brightness-symbolic >/dev/null 2>&1 || true
 fi
 
 echo "brightness-ddc: $current -> $new (max $max, bus $BUS)"

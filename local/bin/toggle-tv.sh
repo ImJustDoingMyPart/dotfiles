@@ -10,12 +10,17 @@ if ! flock -n 9; then
     exit 0
 fi
 
+# hl.monitor() parte de la regla existente y pisa solo los campos que recibe
+# (hlMonitor en src/config/lua/bindings/LuaBindingsConfigRules.cpp, v0.56.2): modo,
+# posición y escala viven únicamente en cfg/monitors.lua.
+#
+# La confirmación es un OSD de swayosd (efímero, sin historial), no una notificación.
 is_disabled=$(hyprctl -j monitors all | jq -r '.[] | select(.name == "HDMI-A-1") | .disabled')
 if [[ "$is_disabled" == "true" ]]; then
-    hyprctl eval 'hl.monitor({ output = "HDMI-A-1", disabled = false, mode = "1920x1080@60", position = "0x-1080", scale = 1 })'
-    notify-send -t 2000 -i "$HOME/.local/share/icons/device-tv.png" "TV" "Encendida"
+    hyprctl eval 'hl.monitor({ output = "HDMI-A-1", disabled = false })'
+    swayosd-client --custom-message "TV encendida" --custom-icon tv-symbolic -d 2000 >/dev/null 2>&1 || true
 else
-    hyprctl eval 'hl.monitor({ output = "HDMI-A-1", disabled = true, mode = "1920x1080@60", position = "0x-1080", scale = 1 })'
-    notify-send -t 2000 -i "$HOME/.local/share/icons/device-tv-off.png" "TV" "Apagada"
+    hyprctl eval 'hl.monitor({ output = "HDMI-A-1", disabled = true })'
+    swayosd-client --custom-message "TV apagada" --custom-icon tv-symbolic -d 2000 >/dev/null 2>&1 || true
 fi
 sleep 1

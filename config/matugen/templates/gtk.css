@@ -89,3 +89,18 @@
 
 @define-color shade_color rgba(0, 0, 6, 0.25);
 @define-color scrollbar_outline_color rgba(0, 0, 6, 0.5);
+
+/* Color de acento para Chromium / Brave:
+ * Chromium extrae su color de acento de "treeview.view treeview.view.cell:selected:focus".
+ * En adw-gtk3, treeview.view:selected usa alpha(@accent_bg_color, 0.25) y la celda (.cell)
+ * no tiene selector propio, por lo que Chromium muestrea el fondo oscuro de la vista.
+ * Al acotarlo a la clase .chromium (que Chromium inyecta automáticamente en cada nodo),
+ * garantizamos el acento pleno del tema sin tocar ninguna aplicación GTK nativa.
+ */
+treeview.view.cell.chromium:selected:focus,
+treeview.view.cell.chromium:selected,
+treeview.view.cell.chromium:selected:focus label,
+treeview.view.cell.chromium:selected label {
+  background-color: @theme_selected_bg_color;
+  color: @theme_selected_fg_color;
+}

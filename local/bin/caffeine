@@ -18,9 +18,12 @@ UNIT="hypridle.service"
 
 is_on() { systemctl --user is-active --quiet "$UNIT"; }
 
-notify() {
-  command -v notify-send >/dev/null && notify-send -a Caffeine -u low \
-    -i "$HOME/.local/share/icons/coffee.png" "$1" "$2" || true
+# Confirmación efímera por swayosd, no notificación: un cambio de estado no tiene nada que
+# releer después, y en el historial de swaync solo ocuparía lugar. --custom-icon toma
+# NOMBRES del tema de íconos (gtk ThemedIcon), no rutas: los dos son propios, en
+# ~/.local/share/icons/hicolor/scalable/status, con la tecla de caps-lock-symbolic.
+osd() {
+  swayosd-client --custom-message "$1" --custom-icon "$2" -d 2000 >/dev/null 2>&1 || true
 }
 
 case "${1:-toggle}" in
@@ -29,11 +32,11 @@ case "${1:-toggle}" in
     ;;
   on)
     systemctl --user stop "$UNIT"
-    notify "Caffeine activado" "La pantalla no se va a apagar ni bloquear sola"
+    osd "Caffeine activado" osd-caffeine-on-symbolic
     ;;
   off)
     systemctl --user start "$UNIT"
-    notify "Caffeine desactivado" "Vuelven el apagado de pantalla y el bloqueo automático"
+    osd "Caffeine desactivado" osd-caffeine-off-symbolic
     ;;
   toggle)
     if is_on; then

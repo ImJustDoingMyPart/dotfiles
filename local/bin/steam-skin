@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Mantiene puesta la skin Adwaita-for-Steam con la paleta del tema activo.
+#
+#   steam-skin check    reparchea si Steam restauró sus CSS. Lo corre steam-skin.service,
+#                       disparado por steam-skin.path cuando cambia steamui/css/.
+#   steam-skin colors   copia la paleta del tema activo como custom.css. Lo corre
+#                       theme-reload, al cambiar de tema o de wallpaper.
+#   steam-skin update   si upstream publicó un tag nuevo, lo baja y reinstala. Lo corre
+#                       steam-skin-update.timer, una vez por semana.
+#   steam-skin install  reinstala a la fuerza, aunque el parche esté puesto. A mano.
+#
+# Los flags de instalación viven SOLO en instalar(): los usan los tres caminos que
+# instalan, y un flag pasado a mano a install.py se perdería en la próxima reinstalación
+# automática.
+#
+# Por qué cambiar el color NO reinstala: el parche convierte library.css en una cadena de
+# @import que Steam resuelve en cada arranque (library.css -> ../adwaita/config.css ->
+# custom.css). Pisar custom.css y reiniciar Steam alcanza.
+#
+# Por qué Steam despatchea: al arrancar compara SOLO TAMAÑOS ("Verifying file sizes only"
+# en logs/bootstrap_log.txt) y restaura lo que no coincide. El instalador rellena el CSS
+# parcheado con espacios hasta el tamaño de <archivo>.original.css, así que el parche
+# sobrevive mientras ese .original sea el de la versión actual de Steam. Cuando una
+# actualización trae otro library.css, Steam lo pisa y esto lo vuelve a parchear (el
+# instalador toma el archivo nuevo como .original).
+#
+# Peso: el camino normal de `check` es leer 23 bytes de tres archivos con el builtin `read`,
+# sin lanzar procesos. Python corre solo cuando hay que reinstalar. Nunca abre ni reinicia
+# Steam: si hace falta, avisa. En pantalla completa el aviso lo retiene
+# notif-inhibit-fullscreen, como a cualquier otro.
+
+set -uo pipefail
+
+STEAM="$HOME/.local/share/Steam"
+CSS_DIR="$STEAM/steamui/css"
+SKIN_DIR="$STEAM/steamui/adwaita"
+REPO="$HOME/Proyectos/Adwaita-for-Steam"
+THEMES_DIR="$HOME/.config/themes"
+ICON="$HOME/.local/share/icons/paintbrush.png"
+HEADER="/* Adwaita-for-Steam */"
+
+# La paleta del tema activo. Si ese tema no trae steam.css (un tema curado que todavía no
+# lo tiene), `colors` no toca nada, como theme-set con los symlinks que no puede
+# reapuntar; pero el instalador necesita ALGÚN custom.css para que config.css lo importe,
+# así que `check` cae a la de matugen.
+paleta() {
+  local activo=""
+  [[ -r $THEMES_DIR/.activo ]] && activo=$(<"$THEMES_DIR/.activo")
+  if [[ -n $activo && -r $THEMES_DIR/$activo/steam.css ]]; then
+    printf '%s\n' "$THEMES_DIR/$activo/steam.css"
+  elif [[ ${1:-} == --fallback && -r $THEMES_DIR/matugen/steam.css ]]; then
+    printf '%s\n' "$THEMES_DIR/matugen/steam.css"
+  else
+    return 1
+  fi
+}
+
+colors() {
+  local src
+  src=$(paleta) || return 0
+  [[ -d $SKIN_DIR ]] || return 0
+  cmp -s "$src" "$SKIN_DIR/custom.css" && return 0
+  cp -f "$src" "$SKIN_DIR/custom.css"
+}
+
+# Parcheado = los tres CSS que toca el instalador empiezan con su encabezado, y la skin
+# tiene custom.css (sin él, config.css no lo importa: hay que instalar con --custom-css).
+parcheado() {
+  local f linea
+  for f in library.css gamerecording.css gamenotes.css; do
+    IFS= read -r -n ${#HEADER} linea <"$CSS_DIR/$f" 2>/dev/null || return 1
+    [[ $linea == "$HEADER" ]] || return 1
+  done
+  [[ -f $SKIN_DIR/custom.css ]]
+}
+
+instalar() {
+  local args=(-t "$STEAM" -c adwaita -s dark) src
+  src=$(paleta --fallback) && args+=(--custom-css "$src")
+  # El exit code del instalador no sirve de veredicto: si falla en un destino, atrapa la
+  # excepción, imprime "No changes made" y sale con 0. Se vuelve a mirar el resultado, y
+  # la VERSION copiada: en una actualización el parche viejo ya estaba puesto, así que
+  # parcheado() solo no distingue "instaló" de "falló y quedó lo de antes".
+  (cd "$REPO" && python3 install.py "${args[@]}")
+  if ! parcheado || ! cmp -s "$REPO/adwaita/VERSION" "$SKIN_DIR/VERSION"; then
+    notify-send -a Steam -u critical -i "$ICON" "No se pudo instalar la skin de Steam" \
+      "journalctl --user -u steam-skin.service -u steam-skin-update.service"
+    return 1
+  fi
+}
+
+# Un solo instalador a la vez, entre el .path, el timer y lo que se corra a mano.
+lock() {
+  exec 9>"${XDG_RUNTIME_DIR:-/tmp}/steam-skin.lock"
+  flock 9
+}
+
+check() {
+  # Steam no está instalado acá: nada que hacer.
+  [[ -d $CSS_DIR ]] || return 0
+  parcheado && return 0
+  lock
+  # Lo que llegó mientras otro instalaba vuelve a mirar y sale sin hacer nada.
+  parcheado && return 0
+  instalar || return 1
+  notify-send -a Steam -u low -i "$ICON" "Skin de Steam reaplicada" \
+    "Steam había restaurado sus estilos. Si está abierto, reinicialo para verla."
+}
+
+# Sigue los TAGS, no master: cada actualización ejecuta el install.py de upstream sin
+# revisión, y los tags son los puntos que el autor publica; master lleva commits sueltos.
+update() {
+  [[ -d $CSS_DIR ]] || return 0
+  # Sin red (p. ej. el timer recuperado justo al arrancar) sale con 75 (EX_TEMPFAIL), el
+  # único código que steam-skin-update.service reintenta (RestartForceExitStatus=75).
+  git -C "$REPO" fetch --quiet --tags origin || return 75
+  # El último tag por FECHA, no por nombre: --sort=version:refname pone el viejo `v3.1`
+  # por encima de `4.4` (compara la "v" contra el 4) y bajaba de versión. Y aunque la
+  # fecha mintiera, solo se avanza: el tag tiene que ser descendiente de lo instalado.
+  local nuevo
+  nuevo=$(git -C "$REPO" tag --sort=-creatordate | head -1)
+  [[ -n $nuevo ]] || return 0
+  [[ $(git -C "$REPO" rev-parse HEAD) != $(git -C "$REPO" rev-parse "$nuevo^{commit}") ]] || return 0
+  git -C "$REPO" merge-base --is-ancestor HEAD "$nuevo" || return 0
+  lock
+  if ! git -C "$REPO" checkout --quiet "$nuevo"; then
+    notify-send -a Steam -u critical -i "$ICON" "No se pudo actualizar la skin de Steam" \
+      "git checkout $nuevo falló en $REPO (¿cambios locales?)"
+    return 1
+  fi
+  instalar || return 1
+  notify-send -a Steam -u low -i "$ICON" "Skin de Steam actualizada a $nuevo" \
+    "Si Steam está abierto, reinicialo para verla."
+}
+
+case ${1:-} in
+  check) check ;;
+  colors) colors ;;
+  update) update ;;
+  install) [[ -d $CSS_DIR ]] || { echo "steam-skin: no hay Steam en $STEAM" >&2; exit 1; }
+           lock; instalar ;;
+  *) echo "uso: steam-skin check|colors|update|install" >&2; exit 2 ;;
+esac

@@ -167,6 +167,7 @@ mantener() {
 fila() {
     local texto="$1" sub="$2" icono="$3" idinfo="$4" activo="${5:-}" urgente="${6:-}"
     local plano="${texto} ${sub}"
+    (( filas_reales++ ))
 
     # ─── Por qué acá no hay un solo `$(...)` ───
     #
@@ -208,17 +209,22 @@ volver() {
 listar_animations() {
     local activo
     activo=$(hypr-animation --actual 2>/dev/null || echo "vertical")
+    # La descripción se lee del archivo con una regex, sin cargar el preset: todos la
+    # declaran como `description = "..."` en su tabla de cabecera. Con un `lua` por preset
+    # la hoja tardaba 40 ms contra los 10-13 del resto del índice.
+    local dir="$HOME/.config/hypr/animations" re='^[[:space:]]*description[[:space:]]*=[[:space:]]*"([^"]*)"'
     while read -r f; do
         [[ -z $f ]] && continue
-        local pack="${f%.lua}"
-        local meta
-        meta=$(LUA_PATH="$HOME/.config/hypr/?.lua;;" lua -e "local a=require('animations.$pack'); print(a.description or '')" 2>/dev/null || echo "")
+        local pack="${f%.lua}" meta="" linea
+        while IFS= read -r linea; do
+            if [[ $linea =~ $re ]]; then meta="${BASH_REMATCH[1]}"; break; fi
+        done < "$dir/$f"
         if [[ $pack == "$activo" ]]; then
             fila "$(pretty "$pack")" "activo · ${meta:-$pack}" "preferences-desktop-screensaver" "opt:animation:${pack}" 1
         else
             fila "$(pretty "$pack")" "${meta:-$pack}" "preferences-desktop-screensaver" "opt:animation:${pack}"
         fi
-    done < <(find "$HOME/.config/hypr/animations" -maxdepth 1 -name '*.lua' -printf '%P\n' 2>/dev/null | sort)
+    done < <(find "$dir" -maxdepth 1 -name '*.lua' -printf '%P\n' 2>/dev/null | sort)
 }
 
 listar_cursors() {
@@ -320,10 +326,9 @@ listar_audio() {
 }
 
 listar_player() {
-    # playerctld (no playerctl a secas): es el mismo agregador que ya usa
-    # waybar-mpris para el módulo `custom/mpris` — sigue al reproductor MPRIS
-    # más recientemente activo sin que este menú tenga que elegir cuál. Una sola
-    # llamada, igual que ahí, en vez de una por dato.
+    # playerctld (no playerctl a secas): sigue al reproductor MPRIS más
+    # recientemente activo sin que este menú tenga que elegir cuál. Una sola
+    # llamada en vez de una por dato.
     local status title artist
     IFS=$'\t' read -r status title artist < <(
         playerctl --player=playerctld metadata --format $'{{status}}\t{{title}}\t{{artist}}' 2>/dev/null
@@ -1242,20 +1247,27 @@ preludio "$titulo" "$estado"
 
 # ─── Scrollbar solo cuando hay algo para scrollear ───
 #
-# `listview.lines` en layout.rasi es 7: ese es el alto fijo de la tarjeta (ver
+# `listview.lines` en layout.rasi es 6: ese es el alto fijo de la tarjeta (ver
 # `fixed-height: true` ahí — necesario para que no salte de tamaño al escribir en
 # el buscador). El scrollbar de rofi se dibuja igual esté o no esté completa la
-# lista adentro de esas 7 líneas, y ahí es donde se veía "exagerado": una perilla
+# lista adentro de esas 6 líneas, y ahí es donde se veía "exagerado": una perilla
 # grande y fija en un menú de 6 categorías que nunca necesitó scrollear, del mismo
 # tamaño aproximado que en uno que sí scrollea. La solución no es un caso especial
-# para "top": es contar las filas reales de CADA estado y apagar el scrollbar
+# para "top": es contar las filas reales de CADA estado y esconder la perilla
 # (`\0theme\x1f`, la única opción de mode que rofi sí aplica en caliente por
-# invocación, ver rofi-script(5)) cuando entran todas en las 7 líneas.
+# invocación, ver rofi-script(5)) cuando entran todas en las 6 líneas.
+#
+# Las filas las cuenta `fila()` en `filas_reales` a medida que las imprime: todas las
+# llamadas corren en este mismo shell (ninguna dentro de `$(...)` ni de un pipe), así que
+# el contador llega entero hasta acá. Contar después sobre la salida costaba un grep por
+# separador, otro por opción de modo y un wc.
 #
 # Las filas van a un archivo temporal, no a una variable: esta salida lleva bytes
 # NUL de verdad (el primer campo de cada opción de modo, como `\0keep-selection`,
 # y el separador \x1f entre campos de fila) y `$(...)` trunca en el primer NUL —
-# se probó, y se pierden iconos y `info` de la mitad de las filas para abajo.
+# se probó, y se pierden iconos y `info` de la mitad de las filas para abajo. Y tienen
+# que esperar ahí porque la línea de `theme` va antes que ellas, y depende de cuántas son.
+filas_reales=0
 filas_tmp=$(mktemp)
 trap 'rm -f "$filas_tmp"' EXIT
 
@@ -1350,25 +1362,14 @@ case "$info" in
 esac
 } > "$filas_tmp"
 
-# Total de segmentos \x1e menos las opciones de modo (\0keep-selection, la única
-# que aparece mezclada acá adentro, vía mantener()) da las filas reales.
-# `listview { scrollbar: false; }` por \0theme se probó primero y no sirve: es una
-# propiedad ESTRUCTURAL (saca el widget del árbol), y el árbol de widgets se arma
-# una sola vez por proceso de rofi — el snippet de un estado posterior no lo trae
-# de vuelta (probado: top con 6 categorías lo apagaba, y ni Apariencia ni
-# Animaciones, dos invocaciones después y con 8 y más de 7 filas reales, pudieron
-# reencenderlo). rofi-script(5) ya avisa el límite: el `theme` de mode option "es
-# solo para cambios chicos ... de widgets que se actualizan durante el render,
-# como el color de fila" — eso SÍ se puede tocar en cada invocación. Por eso acá
-# no se apaga el scrollbar: se hace invisible pintando la perilla del mismo color
-# que el riel (@background-alt, lo que ya usa `scrollbar.background-color` en
-# layout.rasi) cuando no hace falta scrollear, y se la devuelve a su color normal
-# (@accent-alt, el default de layout.rasi) cuando sí hace falta. El riel atenuado
-# queda de fondo en los dos casos — es el mismo rastro sutil en toda la tarjeta,
-# nunca un elemento que aparece y desaparece.
-total_segmentos=$(grep -Pao '\x1e' "$filas_tmp" 2>/dev/null | wc -l)
-opciones_modo=$(grep -Pac '\x00keep-selection' "$filas_tmp" 2>/dev/null)
-filas_reales=$(( total_segmentos - opciones_modo ))
+# `listview { scrollbar: false; }` por \0theme no sirve: es una propiedad ESTRUCTURAL
+# (saca el widget del árbol), y el árbol de widgets se arma una sola vez por proceso de
+# rofi — el snippet de un estado posterior no lo trae de vuelta (probado: top lo apagaba y
+# ninguna hoja posterior con más de 6 filas pudo reencenderlo). rofi-script(5) ya avisa el
+# límite: el `theme` de mode option "es solo para cambios chicos ... de widgets que se
+# actualizan durante el render, como el color de fila". Por eso acá no se apaga el
+# scrollbar: la perilla se pinta de @background-alt —se funde con el riel atenuado— cuando
+# no hace falta scrollear, y vuelve a @accent-alt, su color de layout.rasi, cuando sí.
 if (( filas_reales <= 6 )); then
     printf '\0theme\x1fscrollbar { handle-color: @background-alt; }\x1e'
 else

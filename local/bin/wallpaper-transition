@@ -37,8 +37,8 @@ if [[ -n ${WALLPAPER_TRANSITION:-} && ${WALLPAPER_TRANSITION} != "sorteo" ]]; th
   exit 0
 fi
 
-# El monitor va a 180 Hz; 60 es el punto donde la animación ya se ve continua sin que el
-# daemon tenga que componer 1080p tres veces por cuadro. El default de awww es 30, que en una
+# El monitor va a 300 Hz; 60 es el punto donde la animación ya se ve continua sin que el
+# daemon tenga que componer 1440p cinco veces por cuadro. El default de awww es 30, que en una
 # barrida diagonal se nota escalonado.
 FPS=60
 

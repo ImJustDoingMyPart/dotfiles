@@ -5,13 +5,14 @@
   "control-center-height": -1,
   "fit-to-screen": false,
   "layer-shell-cover-screen": true,
-  "notification-window-width": 300,
+  "notification-window-width": 304,
   "transition-time": 250,
   "text-empty": "Sin notificaciones",
   "widgets": [
     "menubar",
     "volume",
     "slider",
+    "mpris",
     "notifications",
     "buttons-grid"
   ],
@@ -29,7 +30,7 @@
           {
             "label": "󰂛",
             "type": "toggle",
-            "command": "swaync-client -d -sw",
+            "command": "sh -c 'if [ \"$(swaync-client -d -sw)\" = true ]; then swayosd-client --custom-message \"No molestar activado\" --custom-icon osd-dnd-on-symbolic -d 2000; else swayosd-client --custom-message \"No molestar desactivado\" --custom-icon osd-dnd-off-symbolic -d 2000; fi'",
             "update-command": "swaync-client -D -sw"
           }
         ]
@@ -134,6 +135,11 @@
     "volume": {
       "label": "󰕾",
       "show-per-app": false
+    },
+    "mpris": {
+      "autohide": true,
+      "show-album-art": "when-available",
+      "blacklist": ["\\.playerctld$"]
     },
     "notifications": {
       "vexpand": false

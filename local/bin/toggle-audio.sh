@@ -71,19 +71,20 @@ done
 # sinks` y sin cortar acá la descripción se repetía una vez por cada clon.
 next_name=$(pactl list sinks | awk -v sink="$next_sink" '$0 == "\tName: " sink {f=1} f && $1=="Description:" {print substr($0, index($0,$2)); exit}')
 
-# 8. Elegir ícono según el tipo de dispositivo
-icons_dir="$HOME/.local/share/icons"
+# 8. Elegir ícono según el tipo de dispositivo. Son NOMBRES del tema de íconos, no rutas:
+# swayosd los resuelve como gtk ThemedIcon y no acepta archivos.
 case "$next_sink $next_name" in
     *hdmi*|*HDMI*)
-        icon="$icons_dir/device-tv.png"
+        icon="tv-symbolic"
         ;;
     *[Aa]uricular*|*headset*|*headphone*)
-        icon="$icons_dir/headset.png"
+        icon="audio-headphones-symbolic"
         ;;
     *)
-        icon="$icons_dir/device-speaker.png"
+        icon="audio-speakers-symbolic"
         ;;
 esac
 
-# 9. Mostrar la notificación
-notify-send -a "Audio" -t 2000 -i "$icon" "Salida de audio" "Cambiado a: $next_name"
+# 9. Confirmar con el OSD de swayosd, no con una notificación: el cambio se ve y desaparece,
+# sin quedar en el historial de swaync.
+swayosd-client --custom-message "$next_name" --custom-icon "$icon" -d 2000 >/dev/null 2>&1 || true

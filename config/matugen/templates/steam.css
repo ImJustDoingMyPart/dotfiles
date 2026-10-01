@@ -1,0 +1,83 @@
+/* Template de matugen -> ~/.config/themes/matugen/steam.css
+ *
+ * Paleta para la skin Adwaita-for-Steam. No es un color theme del repo: entra como
+ * custom.css, que la skin carga DESPUÉS del tema y en cada arranque de Steam (por
+ * @import desde steamui/adwaita/config.css). `steam-skin colors` la copia ahí.
+ *
+ * Las variables son las que define cualquier color theme del repo
+ * (adwaita/colorthemes/<tema>/<tema>.css); el acento se pisa por --adw-system-accent,
+ * que es de donde lo toma adwaita/css/_colors/default.css.
+ *
+ * Sin placeholders dentro de comentarios.
+ */
+
+:root
+{
+	--adw-color-scheme: dark !important;
+
+	--adw-system-accent: {{colors.primary.default.hex}} !important;
+	--adw-accent-bg-light: {{colors.primary.default.hex}} !important;
+	--adw-accent-bg-dark: {{colors.primary.default.hex}} !important;
+
+	--adw-destructive-bg-light: {{colors.error.default.hex}} !important;
+	--adw-destructive-bg-dark: {{colors.error.default.hex}} !important;
+	--adw-destructive-fg: {{colors.on_error.default.hex}} !important;
+
+	--adw-success-bg-light: {{colors.quota_ok.default.hex}} !important;
+	--adw-success-bg-dark: {{colors.quota_ok.default.hex}} !important;
+	--adw-success-fg: {{colors.surface_container_lowest.default.hex}} !important;
+
+	--adw-warning-bg-light: {{colors.quota_warn.default.hex}} !important;
+	--adw-warning-bg-dark: {{colors.quota_warn.default.hex}} !important;
+	--adw-warning-fg: rgba(0, 0, 0, 0.8) !important;
+
+	--adw-error-bg-light: {{colors.error.default.hex}} !important;
+	--adw-error-bg-dark: {{colors.error.default.hex}} !important;
+	--adw-error-fg: {{colors.on_error.default.hex}} !important;
+
+	--adw-window-bg: {{colors.surface.default.hex}} !important;
+	--adw-window-fg: {{colors.on_surface.default.hex}} !important;
+
+	--adw-view-bg: {{colors.surface_container_lowest.default.hex}} !important;
+	--adw-view-fg: {{colors.on_surface.default.hex}} !important;
+
+	--adw-headerbar-bg: {{colors.surface_container.default.hex}} !important;
+	--adw-headerbar-fg: {{colors.on_surface.default.hex}} !important;
+	--adw-headerbar-backdrop: {{colors.surface.default.hex}} !important;
+	--adw-headerbar-border: {{colors.outline_variant.default.hex}} !important;
+	--adw-headerbar-shade: rgba(0, 0, 0, 0.36) !important;
+	--adw-headerbar-darker-shade: rgba(0, 0, 0, 0.9) !important;
+
+	--adw-sidebar-bg: {{colors.surface_container_low.default.hex}} !important;
+	--adw-sidebar-fg: {{colors.on_surface.default.hex}} !important;
+	--adw-sidebar-backdrop: {{colors.surface.default.hex}} !important;
+	--adw-sidebar-shade: rgba(0, 0, 0, 0.36) !important;
+
+	--adw-secondary-sidebar-bg: {{colors.surface_container_lowest.default.hex}} !important;
+	--adw-secondary-sidebar-fg: {{colors.on_surface.default.hex}} !important;
+	--adw-secondary-sidebar-backdrop: {{colors.surface.default.hex}} !important;
+	--adw-secondary-sidebar-border: rgba(0, 0, 0, 0.36) !important;
+	--adw-secondary-sidebar-shade: rgba(0, 0, 0, 0.36) !important;
+
+	--adw-card-bg: {{colors.surface_container_high.default.hex}} !important;
+	--adw-card-fg: {{colors.on_surface.default.hex}} !important;
+	--adw-card-shade: rgba(0, 0, 0, 0.36) !important;
+
+	--adw-dialog-bg: {{colors.surface_container.default.hex}} !important;
+	--adw-dialog-fg: {{colors.on_surface.default.hex}} !important;
+
+	--adw-popover-bg: {{colors.surface_container_high.default.hex}} !important;
+	--adw-popover-fg: {{colors.on_surface.default.hex}} !important;
+	--adw-popover-shade: rgba(0, 0, 0, 0.36) !important;
+
+	--adw-thumbnail-bg: {{colors.surface_container_high.default.hex}} !important;
+	--adw-thumbnail-fg: {{colors.on_surface.default.hex}} !important;
+
+	--adw-shade: rgba(0, 0, 0, 0.36) !important;
+
+	--adw-banner: {{colors.outline.default.hex}} !important;
+
+	--adw-user-offline: {{colors.outline.default.hex}} !important;
+	--adw-user-online: {{colors.primary.default.hex}} !important;
+	--adw-user-ingame: {{colors.quota_ok.default.hex}} !important;
+}

@@ -102,9 +102,10 @@ output_path = "/home/anon/.config/themes/matugen/swayosd.css"
 # Son los templates que habían quedado congelados al salir de Noctalia: conservaban
 # su último render y se veían coherentes, pero ya no cambiaban con el wallpaper.
 #
-# El séptimo congelado, `steam`, NO se portó a propósito: escribía dentro de
+# El séptimo congelado, `steam`, NO se portó: escribía dentro de
 # ~/.steam/steam/steamui/skins/Material-Theme/, y ahí no hay ninguna skin instalada
-# (ni skin.json, ni Millennium, ni SFP). Steam nunca leyó ese archivo.
+# (ni skin.json, ni Millennium, ni SFP). Steam nunca leyó ese archivo. El `steam` de
+# más abajo es otro: apunta a la skin Adwaita-for-Steam, que sí está instalada.
 #
 # `post_hook` no está en la doc de matugen, pero el binario 4.1.0 sí lo acepta
 # (aparece entre las claves de la struct Template, junto a colors_to_compare y
@@ -156,3 +157,12 @@ input_path  = "/home/anon/.config/matugen/templates/antigravity-ide.json"
 output_path = "/home/anon/.config/themes/matugen/antigravity-ide.json"
 post_hook   = "/home/anon/.local/bin/theme-antigravity-ide-apply"
 
+# Steam, con la skin Adwaita-for-Steam. Se COPIA como steamui/adwaita/custom.css, igual
+# que Obsidian, y no se symlinkea: cada reinstalación de la skin borra esa carpeta entera
+# (copy_dir hace rmtree). Sin post_hook a propósito: la copia la hace theme-reload, que
+# corre en los dos caminos (theme-set y wallpaper), así que un hook sería una segunda
+# pasada idéntica. Steam lo lee al arrancar: el color nuevo entra en el próximo reinicio
+# de Steam. Detalle en ~/.local/bin/steam-skin.
+[templates.steam]
+input_path  = "/home/anon/.config/matugen/templates/steam.css"
+output_path = "/home/anon/.config/themes/matugen/steam.css"

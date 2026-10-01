@@ -9,6 +9,7 @@
 case "$1" in
     set)
         pactl set-default-sink "$2"
+        swaync-refresh-toggles
         ;;
     is-active)
         [ "$(pactl get-default-sink)" = "$2" ] && echo true || echo false

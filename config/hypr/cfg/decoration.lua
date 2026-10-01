@@ -15,15 +15,16 @@ hl.config({
             noise             = 0.02,
             vibrancy          = 0.1696,
             new_optimizations = true,
+            -- Menús contextuales y tooltips de las apps (popups xdg): el mismo blur que la
+            -- ventana que los abre, en vez de un rectángulo plano encima de un fondo difuso.
+            popups            = true,
         },
     },
 
     misc = {
-        vrr                     = 2,
         disable_hyprland_logo   = true,
         disable_splash_rendering= true,
         focus_on_activate       = true,
-        background_color        = "0x120d11",
     },
 
     render = {

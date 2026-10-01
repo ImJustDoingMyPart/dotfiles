@@ -58,6 +58,13 @@ notify() {
   command -v notify-send >/dev/null && notify-send -a "Luz nocturna" -u low "$1" "$2" || true
 }
 
+# Los errores siguen yendo por notify (quedan en el historial de swaync); los cambios de
+# estado van como OSD efímero de swayosd, que no deja rastro. --custom-icon toma NOMBRES
+# del tema de íconos, no rutas.
+osd() {
+  swayosd-client --custom-message "$1" --custom-icon "$2" -d 2000 >/dev/null 2>&1 || true
+}
+
 case "${1:-toggle}" in
   status)
     is_on && echo "on" || echo "off"
@@ -69,7 +76,7 @@ case "${1:-toggle}" in
 
     if ((${#AUTO_ARGS[@]})); then
       setsid -f wlsunset "${AUTO_ARGS[@]}" >/dev/null 2>&1
-      notify "Luz nocturna activada" "modo automático"
+      osd "Luz nocturna activada (automática)" night-light-symbolic
       exit 0
     fi
 
@@ -97,13 +104,13 @@ case "${1:-toggle}" in
     sleep 0.2
     kill -USR1 "$pid"
 
-    notify "Luz nocturna activada" "${TEMP}K"
+    osd "Luz nocturna activada (${TEMP} K)" night-light-symbolic
     ;;
   off)
     # wlsunset restaura el gamma original al recibir SIGTERM, así que no hace falta
     # resetearlo a mano.
     pkill -x wlsunset 2>/dev/null || true
-    notify "Luz nocturna desactivada" "Temperatura normal"
+    osd "Luz nocturna desactivada" night-light-disabled-symbolic
     ;;
   toggle)
     if is_on; then "$0" off; else "$0" on "$TEMP"; fi

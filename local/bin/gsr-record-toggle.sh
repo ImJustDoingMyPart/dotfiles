@@ -8,14 +8,13 @@ set -u
 
 PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/gsr-manual-recording.pid"
 OUTDIR="$(xdg-user-dir VIDEOS 2>/dev/null || echo "$HOME/Vídeos")/Grabaciones"
-APP="GPU Screen Recorder"
 
 # ¿Hay ya una grabación manual viva? -> parar y guardar.
 if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
     PID="$(cat "$PIDFILE")"
     kill -INT "$PID"            # SIGINT = parar y guardar (modo grabación)
     rm -f "$PIDFILE"
-    notify-send -a "$APP" -u normal "⏹ Grabación detenida" "Guardada en ~/Vídeos/Grabaciones/"
+    swayosd-client --custom-message "Grabación guardada" --custom-icon media-playback-stop-symbolic -d 2000 >/dev/null 2>&1 || true
     exit 0
 fi
 
@@ -34,4 +33,6 @@ setsid gpu-screen-recorder -w "$MON" -f 60 -a default_output \
     -k hevc -q very_high -c mp4 -o "$OUT" >/dev/null 2>&1 &
 echo $! > "$PIDFILE"
 
-notify-send -a "$APP" -u low "⏺ Grabando $MON…" "Pulsa Mod+Shift+R otra vez para parar y guardar"
+# Confirmación por OSD de swayosd (efímero, sin historial en swaync). Se ve 2 s y, como
+# graba el monitor entero, entra en el primer segundo del clip, igual que la notificación.
+swayosd-client --custom-message "Grabando $MON" --custom-icon media-record-symbolic -d 2000 >/dev/null 2>&1 || true

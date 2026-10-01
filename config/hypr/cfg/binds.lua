@@ -34,7 +34,13 @@ end
 
 -- ─── Menús y Lanzadores (Rofi) ───
 bind(mod .. " + space", hl.dsp.exec_cmd(toggle_rofi("rofi -show drun")), { desc = "Launcher" })
-bind(mod .. " + ALT + equal", hl.dsp.exec_cmd(toggle_rofi("rofi -show calc -modi calc")), { desc = "Calculadora" })
+-- Calculadora: alto fijo. rofi-calc escribe el resultado —y las advertencias de qalc, que
+-- pueden ocupar varias líneas— en el widget `message`, y rofi agranda la tarjeta entera para
+-- que entre, aunque la lista de abajo (el historial) esté casi vacía. Con `window { height }`
+-- fijo, el mensaje que crece le quita filas a la lista en vez de estirar la tarjeta. 362px es
+-- lo que mide la tarjeta con el mensaje de una línea (`hyprctl layers`, namespace rofi): si
+-- cambia la fuente o `lines` en layout.rasi, este número los sigue.
+bind(mod .. " + ALT + C", hl.dsp.exec_cmd(toggle_rofi("rofi -show calc -modi calc -theme-str 'window { height: 362px; }'")), { desc = "Calculadora" })
 bind(mod .. " + X", hl.dsp.exec_cmd(toggle_rofi("rofi -show powermenu -modes powermenu:rofi-power-menu")), { desc = "Power Menu" })
 bind(mod .. " + ALT + U", hl.dsp.exec_cmd(toggle_rofi("rofimoji")), { desc = "Símbolos/Unicode" })
 bind(mod .. " + V", hl.dsp.exec_cmd(toggle_rofi("cliphist list | rofi -dmenu -p Portapapeles | cliphist decode | wl-copy")), { desc = "Portapapeles" })
@@ -44,9 +50,8 @@ bind(mod .. " + comma", hl.dsp.exec_cmd(toggle_rofi("/home/anon/.local/bin/menu-
 bind(mod .. " + Y", hl.dsp.exec_cmd("/home/anon/.local/bin/fondos-selector"), { desc = "Selector de fondos" })
 bind(mod .. " + SHIFT + Y", hl.dsp.exec_cmd(toggle_rofi("/home/anon/.local/bin/menu-sistema leaf:wallpapers")), { desc = "Fondos de pantalla" })
 
--- Overview sustituto con rofi window (D3)
-bind(mod .. " + D", hl.dsp.exec_cmd(toggle_rofi("rofi -show window")), { desc = "Overview (Ventanas)" })
-bind(mod .. " + O", hl.dsp.exec_cmd(toggle_rofi("rofi -show window")), { desc = "Overview (Ventanas)" })
+-- Ventanas abiertas con rofi window (D3)
+bind(mod .. " + D", hl.dsp.exec_cmd(toggle_rofi("rofi -show window")), { desc = "Ventanas" })
 
 -- Alt-tab clásico: mantener SUPER y repetir Tab cicla ventanas (cada pulsación mueve foco,
 -- sin overlay). `repeating = true` hace que el auto-repeat del teclado dispare el dispatcher
@@ -56,7 +61,7 @@ bind(mod .. " + SHIFT + Tab", hl.dsp.window.cycle_next({ prev = true }), { repea
 
 -- ─── Notificaciones y Bloqueo ───
 bind(mod .. " + N", hl.dsp.exec_cmd("swaync-client -t"), { desc = "Notification Center" })
-bind(mod .. " + SHIFT + N", hl.dsp.exec_cmd("swaync-client -t"), { desc = "Notification Center" })
+bind(mod .. " + SHIFT + N", hl.dsp.exec_cmd("swaync-client -d"), { desc = "No molestar" })
 bind(mod .. " + ALT + L", hl.dsp.exec_cmd("/home/anon/.local/bin/lock"), { desc = "Bloquear pantalla" })
 bind(mod .. " + ALT + SHIFT + L", hl.dsp.exec_cmd("pgrep -x hyprlock >/dev/null || /home/anon/.local/bin/lock"), { locked = true, desc = "Rescate del lock" })
 
@@ -105,6 +110,7 @@ bind(mod .. " + E", run_or_cycle("yazi", "kitty --class yazi yazi"), { desc = "Y
 bind(mod .. " + SHIFT + E", run_or_cycle("org.gnome.Nautilus", "nautilus"), { desc = "Nautilus (Cycle)" })
 bind(mod .. " + Z", run_or_cycle("vesktop", "vesktop"), { desc = "Vesktop (Cycle)" })
 bind(mod .. " + S", run_or_cycle("steam", "steam"), { desc = "Steam (Cycle)" })
+bind(mod .. " + O", run_or_cycle("md.obsidian.Obsidian", "obsidian"), { desc = "Obsidian (Cycle)" })
 bind(mod .. " + M", hl.dsp.exec_cmd("kitty --class btop btop"), { desc = "System Monitor" })
 
 -- ─── Controles Multimedia ───
@@ -145,17 +151,36 @@ bind(mod .. " + K", hl.dsp.layout("focus u"), { desc = "Foco arriba" })
 bind(mod .. " + Down", hl.dsp.layout("focus d"), { desc = "Foco abajo" })
 bind(mod .. " + J", hl.dsp.layout("focus d"), { desc = "Foco abajo" })
 
+-- Workspaces relativos con tope. `r+1` de Hyprland crea workspaces sin límite (11, 12…),
+-- que Waybar no tiene cómo nombrar. Esto camina por IDs 1..WS_MAX y en los bordes no hace
+-- nada, sin crear ni dar la vuelta. El 10 (juegos) queda afuera: se entra con Mod+0, y desde
+-- ahí "anterior" baja al 9 y "siguiente" no hace nada.
+local WS_MAX = 9
+local function ws_relativo(delta, mover)
+    return function()
+        local w = hl.get_active_workspace()
+        if not w or w.special then return end
+        local destino = w.id + delta
+        if destino < 1 or destino > WS_MAX then return end
+        if mover then
+            hl.dispatch(hl.dsp.window.move({ workspace = destino }))
+        else
+            hl.dispatch(hl.dsp.focus({ workspace = destino }))
+        end
+    end
+end
+
 -- Mover columna (Shift)
 bind(mod .. " + SHIFT + Left", hl.dsp.layout("swapcol l"), { desc = "Mover columna izquierda" })
 bind(mod .. " + SHIFT + H", hl.dsp.layout("swapcol l"), { desc = "Mover columna izquierda" })
 bind(mod .. " + SHIFT + Right", hl.dsp.layout("swapcol r"), { desc = "Mover columna derecha" })
 bind(mod .. " + SHIFT + L", hl.dsp.layout("swapcol r"), { desc = "Mover columna derecha" })
-bind(mod .. " + SHIFT + Up", hl.dsp.window.move({ workspace = "r-1" }), { desc = "Mover ventana workspace arriba" })
-bind(mod .. " + SHIFT + K", hl.dsp.window.move({ workspace = "r-1" }), { desc = "Mover ventana workspace arriba" })
-bind(mod .. " + SHIFT + Down", hl.dsp.window.move({ workspace = "r+1" }), { desc = "Mover ventana workspace abajo" })
-bind(mod .. " + SHIFT + J", hl.dsp.window.move({ workspace = "r+1" }), { desc = "Mover ventana workspace abajo" })
-bind(mod .. " + SHIFT + I", hl.dsp.window.move({ workspace = "r-1" }), { desc = "Mover ventana workspace arriba" })
-bind(mod .. " + SHIFT + U", hl.dsp.window.move({ workspace = "r+1" }), { desc = "Mover ventana workspace abajo" })
+bind(mod .. " + SHIFT + Up", ws_relativo(-1, true), { desc = "Mover ventana workspace arriba" })
+bind(mod .. " + SHIFT + K", ws_relativo(-1, true), { desc = "Mover ventana workspace arriba" })
+bind(mod .. " + SHIFT + Down", ws_relativo(1, true), { desc = "Mover ventana workspace abajo" })
+bind(mod .. " + SHIFT + J", ws_relativo(1, true), { desc = "Mover ventana workspace abajo" })
+bind(mod .. " + SHIFT + I", ws_relativo(-1, true), { desc = "Mover ventana workspace arriba" })
+bind(mod .. " + SHIFT + U", ws_relativo(1, true), { desc = "Mover ventana workspace abajo" })
 
 -- Foco y mover entre monitores (Ctrl / Ctrl+Shift)
 bind(mod .. " + CTRL + Left", hl.dsp.focus({ monitor = "l" }), { desc = "Foco monitor izquierda" })
@@ -177,12 +202,12 @@ bind(mod .. " + CTRL + SHIFT + Down", hl.dsp.window.move({ monitor = "d" }), { d
 bind(mod .. " + CTRL + SHIFT + J", hl.dsp.window.move({ monitor = "d" }), { desc = "Mover ventana monitor abajo" })
 
 -- Workspaces relativos (U/I y rueda)
-bind(mod .. " + I", hl.dsp.focus({ workspace = "r-1" }), { desc = "Workspace anterior" })
-bind(mod .. " + U", hl.dsp.focus({ workspace = "r+1" }), { desc = "Workspace siguiente" })
-bind(mod .. " + Page_Up", hl.dsp.focus({ workspace = "r-1" }), { desc = "Workspace anterior" })
-bind(mod .. " + Page_Down", hl.dsp.focus({ workspace = "r+1" }), { desc = "Workspace siguiente" })
-bind(mod .. " + mouse_up", hl.dsp.focus({ workspace = "r-1" }), { desc = "Workspace anterior (rueda)" })
-bind(mod .. " + mouse_down", hl.dsp.focus({ workspace = "r+1" }), { desc = "Workspace siguiente (rueda)" })
+bind(mod .. " + I", ws_relativo(-1), { desc = "Workspace anterior" })
+bind(mod .. " + U", ws_relativo(1), { desc = "Workspace siguiente" })
+bind(mod .. " + Page_Up", ws_relativo(-1), { desc = "Workspace anterior" })
+bind(mod .. " + Page_Down", ws_relativo(1), { desc = "Workspace siguiente" })
+bind(mod .. " + mouse_up", ws_relativo(-1), { desc = "Workspace anterior (rueda)" })
+bind(mod .. " + mouse_down", ws_relativo(1), { desc = "Workspace siguiente (rueda)" })
 bind(mod .. " + SHIFT + mouse_up", hl.dsp.focus({ direction = "left" }), { desc = "Columna izquierda (rueda)" })
 bind(mod .. " + SHIFT + mouse_down", hl.dsp.focus({ direction = "right" }), { desc = "Columna derecha (rueda)" })
 
@@ -202,6 +227,7 @@ bind(mod .. " + CTRL + 0", hl.dsp.window.move({ workspace = 10 }), { desc = "Mov
 bind(mod .. " + F", hl.dsp.window.fullscreen({ mode = "maximized" }), { desc = "Maximizar columna (scrolling)" })
 bind(mod .. " + SHIFT + F", hl.dsp.window.fullscreen(), { desc = "Pantalla completa" })
 bind(mod .. " + T", hl.dsp.window.float(), { desc = "Alternar flotante" })
+-- Cómo se usan los grupos (pestañas): ver la sección "Grupos" de cfg/layout.lua.
 bind(mod .. " + W", hl.dsp.group.toggle(), { desc = "Alternar pestaña/grupo" })
 bind(mod .. " + C", hl.dsp.layout("center"), { desc = "Centrar columna" })
 bind(mod .. " + CTRL + C", hl.dsp.layout("fit visible"), { desc = "Ajustar columnas visibles" })

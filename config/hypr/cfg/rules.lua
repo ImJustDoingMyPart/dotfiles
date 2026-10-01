@@ -185,7 +185,19 @@ hl.layer_rule({
 hl.layer_rule({
     name         = "swaync-notification",
     match        = { namespace = "^swaync-notification-window$" },
-    no_anim      = true,
+    animation    = "slide bottom",
+    blur         = true,
+    xray         = false,
+    ignore_alpha = 0.5,
+})
+
+-- El OSD de swayosd es de la familia del toast (efímera) y se trata igual: blur, y entrada
+-- desde abajo. La superficie es la tarjeta más 6px de margen para el glow; `ignore_alpha`
+-- deja ese glow (alfa <= 0,5) fuera del blur, y el desenfoque queda recortado a la tarjeta.
+hl.layer_rule({
+    name         = "swayosd",
+    match        = { namespace = "^swayosd$" },
+    animation    = "slide bottom",
     blur         = true,
     xray         = false,
     ignore_alpha = 0.5,

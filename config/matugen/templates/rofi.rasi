@@ -29,11 +29,6 @@
  * (accent-alt, mismo color que la perilla de swaync) es lo único vívido — igual que el
  * original.
  *
- * border-gradient-h: mismo problema de referencia-en-stop, tercera variante. Los mismos
- * colores que el focus-ring de las ventanas (primary -> tertiary), pero de izquierda a
- * derecha y no a 45°: lo usan las tiras de arriba y abajo del borde, y cada tira calcula
- * su degradé sobre su propia geometría (ver `marco` en layout.rasi).
- *
  * background lleva alfa D9 (~0,85) pegado al hex: el mismo 0,85 que @background en
  * bar.css y que la banda del selector de fondos. Lo pinta UNA sola capa (mainbox, ver
  * layout.rasi); todo lo de adentro va transparente, porque los alfas se apilan — tres
@@ -64,5 +59,4 @@
     urgent-fg:       {{colors.on_error.default.hex}};
     border:          {{colors.outline_variant.default.hex}};
     scrollbar-gradient: linear-gradient(to bottom, {{colors.primary.default.hex}}30, {{colors.tertiary.default.hex}}30);
-    border-gradient-h: linear-gradient(to right, {{colors.primary.default.hex}}, {{colors.tertiary.default.hex}});
 }

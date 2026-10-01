@@ -4,15 +4,13 @@
 # Uso:  theme-matugen [imagen]
 # Sin argumento usa el wallpaper actual (ver WALLPAPER más abajo).
 #
-# Escribe ~/.config/themes/matugen/{bar,walker}.css vía ~/.config/matugen/config.toml.
+# Escribe ~/.config/themes/matugen/* según los templates de ~/.config/matugen/config.toml.
 # Si el tema activo es "matugen", los symlinks ya apuntan ahí, así que basta con avisarle
-# a cada programa. Walker toma el CSS nuevo en la próxima apertura.
+# a cada programa.
 #
 # El aviso lo hace `theme-reload` al final, que es el mismo bloque que usa theme-set.
-# ANTES ESTE SCRIPT NO AVISABA NADA, y por eso al cambiar de wallpaper el escritorio se
-# quedaba con el color viejo: kitty, Hyprland, swaync y swayosd leen el archivo del
-# tema una sola vez. Con Waybar no se notaba porque tenía `reload_style_on_change` y
-# vigilaba también los imports; al migrar a Ironbar quedó a la vista.
+# Sin ese aviso el escritorio se queda con el color viejo: kitty, Hyprland, swaync y
+# swayosd leen el archivo del tema una sola vez.
 
 set -euo pipefail
 
@@ -23,14 +21,10 @@ set -euo pipefail
 # less-saturation, value, closest-to-fallback.
 PREFER="${THEME_MATUGEN_PREFER:-saturation}"
 
-# De dónde sale el wallpaper actual, en orden de preferencia. La cadena existe porque
-# durante la migración conviven dos daemons de fondo y ninguno de los dos está garantizado.
+# De dónde sale el wallpaper actual, en orden de preferencia:
 #
-#   1. El archivo de estado que escribe `wallpaper-set` — la fuente de verdad del stack nuevo.
+#   1. El archivo de estado que escribe `wallpaper-set` — la fuente de verdad.
 #   2. El daemon awww, si está vivo (cubre el caso de que alguien haya usado `awww img` a mano).
-#   3. El estado de Noctalia — fallback mientras siga siendo el shell activo.
-#
-# Cuando Noctalia se apague, el punto 3 simplemente deja de matchear y no molesta.
 wallpaper_actual() {
   local f="$HOME/.local/state/wallpaper"
   if [[ -r $f ]]; then
@@ -45,12 +39,7 @@ wallpaper_actual() {
     return 0
   fi
 
-  local n="$HOME/.local/state/noctalia/settings.toml"
-  [[ -r $n ]] || return 1
-  sed -n '/^\[wallpaper\]/,/^\[[a-z]/p' "$n" |
-    sed -n '/\[wallpaper\.last\]/,/^$/p' |
-    sed -n 's/^[[:space:]]*path[[:space:]]*=[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' |
-    head -1
+  return 1
 }
 
 WALLPAPER="${1:-$(wallpaper_actual || true)}"

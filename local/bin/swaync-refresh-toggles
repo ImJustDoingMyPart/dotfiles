@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Resincroniza los toggles del menubar de swaync cerrando y reabriendo el panel.
+#
+# swaync (0.12.6) solo corre los `update-command` de los toggles al ABRIR el panel: un
+# click cambia el estado del botón tocado y de nadie más, así que en un grupo mutuamente
+# excluyente (sinks de audio, conexiones de red) quedaban dos marcados hasta reabrir.
+# Upstream: ErikReider/SwayNotificationCenter#470, abierto. Costo asumido: el panel
+# parpadea y el desplegable se cierra (on_cc_visibility_change colapsa los revealers).
+#
+# Solo si el panel sigue abierto: los comandos de red tardan segundos, y si en el medio
+# se cerró el panel, reabrirlo sería una sorpresa.
+hyprctl -j layers | jq -e '[.. | objects | select(.namespace? == "swaync-control-center")] | length > 0' >/dev/null || exit 0
+swaync-client -cp >/dev/null
+swaync-client -op >/dev/null

@@ -13,7 +13,7 @@ curados como Gruvbox).
 
 ## Demo
 
-[Ver el video](https://github.com/ImJustDoingMyPart/dotfiles/releases/download/demo/dotfiles-demo-matugen.mp4) <!-- TODO: reemplazar por el embed real (user-attachments) -->
+[Ver el video](assets/dotfiles-demo.mp4)
 
 Terminal (Kitty), Waybar, Rofi (`system-index` + calculadora + atajos), selector de fondos en
 GTK4 layer-shell (`fondos-selector`), centro de control SwayNC, SwayOSD, Yazi, Nautilus, Brave
@@ -88,7 +88,7 @@ sin invocar subprocesos:
 
 Rofi reemplaza launchres pesados y centraliza la interacción modal:
 - **`Mod+Space`**: Lanzador de aplicaciones (`drun`).
-- **`Mod+C`**: Calculadora interactiva instantánea vía `rofi-calc` (con `libqalculate`).
+- **`Mod+Alt+C`**: Calculadora interactiva instantánea vía `rofi-calc` (con `libqalculate`).
 - **`Mod+V`**: Historial de portapapeles con `cliphist`.
 - **`Mod+Comma`**: Menú integral del sistema (`system-index`):
   - Selector de fondos con miniaturas visuales (`fondos-selector`, ventana nativa en GTK4 layer-shell).

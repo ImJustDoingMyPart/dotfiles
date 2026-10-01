@@ -9,7 +9,6 @@
     accent-alt:      #d3869b;
     accent-soft:     #83a59840;
     scrollbar-gradient: linear-gradient(to bottom, #83a59830, #d3869b30);
-    border-gradient-h: linear-gradient(to right, #83a598, #d3869b);
     urgent:          #ea6962;
     urgent-fg:       #282828;
     border:          #504945;

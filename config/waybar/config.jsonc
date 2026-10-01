@@ -7,7 +7,7 @@
 //
 // Diferencias contra dotfriedrice y por qué:
 //   - Sin `battery`: esto es un desktop.
-//   - Sin `mpd`: no hay mpd. Se usa `mpris`, que lee cualquier reproductor MPRIS.
+//   - Sin `mpd` ni `mpris`: la reproducción se controla desde el panel de swaync.
 //   - Se suma `custom/system` (CPU, RAM y GPU en un ícono): la máquina es un desktop
 //     con RX 6700 XT y eso es lo que interesa mirar.
 //   - `hyprland/workspaces` MUESTRA bien pero en 0.15.0 el click no cambia de workspace
@@ -20,12 +20,6 @@
   "spacing": 0,
   "height": 28,
 
-  // `mpris`/`custom/mpris` se mudó acá el 2026-08-25 (a pedido de Roberto), a la derecha
-  // de los workspaces. Sigue INVISIBLE cuando no hay nada sonando (texto vacío, ver
-  // waybar-mpris) así que no ocupa lugar en reposo. VENTANA (ventana de scroll del título)
-  // se acotó a 18 caracteres el 2026-09-10 — ver el docstring largo junto a
-  // `modules-center` sobre por qué un ancho variable acá corre el reloj, y por qué NO se
-  // puede arreglar espejando el ancho del lado derecho.
   "modules-left": [
     "hyprland/workspaces"
   ],
@@ -40,22 +34,6 @@
   // NO según el centro absoluto de la pantalla. Medido el 2026-09-10 (capturas + CSS de
   // depuración con fondos de color para ubicar los bordes de cada caja en píxeles): el
   // corrimiento del bloque es la mitad de la diferencia (ancho izquierda − ancho derecha).
-  //
-  // Se probó "espejar" `custom/mpris` con un módulo invisible del mismo ancho en
-  // modules-right (`custom/mpris-pad`) para cancelar esa diferencia — funciona en teoría,
-  // pero en la práctica cuando el título scrollea a los 42 caracteres originales, sumar
-  // ese ancho DOS VECES (una vez real, una vez espejada) hace que el total de las tres
-  // cajas supere el ancho de la pantalla, y GTK responde escondiendo por completo
-  // los módulos de la derecha (dejaron de aparecer del todo, no solo de
-  // achicarse) — peor que el problema original. Se revirtió el mismo día.
-  //
-  // La solución que quedó es la más simple que de verdad no tiene efectos secundarios:
-  // acotar VENTANA en waybar-mpris a 18 caracteres (antes 42), para que el salto de ancho
-  // al arrancar/parar música sea chico en vez de grande. El reloj sigue sin estar 100%
-  // clavado en el píxel absoluto de la pantalla —eso exigiría que TODO módulo variable de
-  // ambos lados sumara siempre lo mismo en las dos cajas, y no hay margen para duplicar tanto
-  // contenido sin que algo se recorte—, pero el corrimiento que queda es de un puñado de
-  // píxeles, no de cientos.
   "modules-center": [
     "group/center-pill"
   ],
@@ -85,19 +63,21 @@
 
   // `-swb` es el modo streaming nativo de swaync, documentado en
   // `/usr/share/doc/swaync/README.md`: el módulo se actualiza solo, sin consultar por
-  // intervalo. Formato e íconos son el ejemplo oficial de esa doc, verbatim.
+  // intervalo. El formato es el ejemplo oficial de esa doc; los íconos no: el botón es
+  // un dashboard en los ocho estados, y No molestar/inhibido se distinguen solo por el
+  // color apagado de las clases `dnd-*` en style.css, no por un glifo de campana.
   "custom/notification": {
     "tooltip": true,
     "format": "{icon}",
     "format-icons": {
       "notification": "󰨝",
       "none": "󰨝",
-      "dnd-notification": "󰂠",
-      "dnd-none": "󰪓",
-      "inhibited-notification": "󰂛",
-      "inhibited-none": "󰪑",
-      "dnd-inhibited-notification": "󰂛",
-      "dnd-inhibited-none": "󰪑"
+      "dnd-notification": "󰨝",
+      "dnd-none": "󰨝",
+      "inhibited-notification": "󰨝",
+      "inhibited-none": "󰨝",
+      "dnd-inhibited-notification": "󰨝",
+      "dnd-inhibited-none": "󰨝"
     },
     "return-type": "json",
     "exec-if": "which swaync-client",
@@ -141,8 +121,12 @@
       "10": "X",
       "default": "{id}"
     },
+    // Listas explícitas por salida, no `"*": 3`: con un número, Waybar reparte los workspaces
+    // según el ID interno que Hyprland le da al monitor, y ese ID sube cada vez que se enchufa
+    // uno en caliente (al cambiar el monitor, DP-3 quedó con ID 2 y la barra mostraba VII-IX).
     "persistent-workspaces": {
-      "*": 3
+      "DP-3": [1, 2, 3],
+      "HDMI-A-1": [4, 5, 6]
     }
   },
 
@@ -271,31 +255,6 @@
     "on-click-right": "swaync-client -t -sw",
     "on-scroll-up": "weather-forecast --nav +1",
     "on-scroll-down": "weather-forecast --nav -1"
-  },
-
-  // `mpris` nativo → `custom/mpris` el 2026-08-25 (a pedido de Roberto). Primero se le
-  // sacó `position`/`length` de `dynamic-order` porque Waybar envuelve ese segmento en
-  // `<small>` de forma INCONDICIONAL (src/modules/mpris/mpris.cpp — sin clave de config
-  // para sacarlo) y encima no se actualizaba solo (con `interval: 0`, el default, el
-  // módulo solo se repinta ante eventos D-Bus, que la posición casi nunca dispara).
-  // Después pidió que el título recorra completo con scroll en vez de truncarse con "…".
-  // Waybar no tiene marquee para NINGÚN módulo (`rotate` gira la etiqueta entera, no la
-  // desplaza — no existe la palabra "marquee" en ningún man page de 0.15.0), y la única
-  // forma de recorrer texto es armar la ventana deslizante a mano, lo que exige control
-  // total del texto en cada tick — algo que un `format` estático no puede dar.
-  //
-  // `waybar-mpris` arma el título+artista y lo desliza en una ventana de 42 caracteres,
-  // 2 por tick (`interval: 1` → 2 caracteres/segundo). Se probó también un `<span
-  // size='…'>` para achicar el texto respecto del resto de la barra, y se revirtió (letra
-  // al 100%, igual que todo lo demás): quedaba mal a cualquier tamaño reducido.
-  "custom/mpris": {
-    "exec": "waybar-mpris",
-    "return-type": "json",
-    "format": "{}",
-    "interval": 1,
-    "on-click": "playerctl --player=playerctld play-pause",
-    "on-click-middle": "playerctl --player=playerctld previous",
-    "on-click-right": "playerctl --player=playerctld next"
   },
 
   // La bandeja va dentro de un drawer: normalmente se ve solo la flechita y se
