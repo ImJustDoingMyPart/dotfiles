@@ -13,7 +13,7 @@ curados como Gruvbox).
 
 ## Demo
 
-[Ver el video](assets/dotfiles-demo.mp4)
+https://github.com/user-attachments/assets/b1b5bc72-ff6a-4953-bbf7-efba083266da
 
 Terminal (Kitty), Waybar, Rofi (`system-index` + calculadora + atajos), selector de fondos en
 GTK4 layer-shell (`fondos-selector`), centro de control SwayNC, SwayOSD, Yazi, Nautilus, Brave
